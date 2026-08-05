@@ -34,10 +34,19 @@ export interface QueuedMatch {
 
 export type PaymentMode = "lapangan_kok" | "all_in";
 
+export type PaymentMethod = "cash" | "qris" | "transfer";
+
+export interface PlayerPayment {
+  paid: boolean;
+  method: PaymentMethod;
+}
+
 export interface PlayerStat extends Player {
   matchesPlayed: number;
   totalCost: number;
   adjustment: number;
+  paid: boolean;
+  paymentMethod: PaymentMethod;
 }
 
 export type ModalType = "alert" | "confirm";

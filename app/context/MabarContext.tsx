@@ -13,9 +13,11 @@ import { generateBalancedMatches } from "../lib/pairing";
 import type {
   Match,
   ModalState,
+  PaymentMethod,
   PaymentMode,
   Player,
   PlayerLevel,
+  PlayerPayment,
   PlayerStat,
   QueuedMatch,
 } from "../types/mabar";
@@ -73,6 +75,11 @@ interface MabarContextValue {
   playerAdjustments: Record<number, number>;
   setPlayerAdjustment: (playerId: number, amount: number) => void;
 
+  // Status pembayaran per pemain
+  playerPayments: Record<number, PlayerPayment>;
+  setPlayerPaid: (playerId: number, paid: boolean) => void;
+  setPlayerPaymentMethod: (playerId: number, method: PaymentMethod) => void;
+
   // Pengeluaran
   expKokSlopQty: number;
   setExpKokSlopQty: Dispatch<SetStateAction<number>>;
@@ -123,6 +130,9 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   const [playerAdjustments, setPlayerAdjustments] = usePersistentState<
     Record<number, number>
   >("playerAdjustments", {});
+  const [playerPayments, setPlayerPayments] = usePersistentState<
+    Record<number, PlayerPayment>
+  >("playerPayments", {});
 
   // Pengaturan mabar
   const [numCourts, setNumCourts] = usePersistentState("numCourts", 1);
@@ -469,6 +479,20 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     setPlayerAdjustments((prev) => ({ ...prev, [playerId]: amount }));
   };
 
+  const setPlayerPaid = (playerId: number, paid: boolean) => {
+    setPlayerPayments((prev) => ({
+      ...prev,
+      [playerId]: { paid, method: prev[playerId]?.method ?? "cash" },
+    }));
+  };
+
+  const setPlayerPaymentMethod = (playerId: number, method: PaymentMethod) => {
+    setPlayerPayments((prev) => ({
+      ...prev,
+      [playerId]: { paid: prev[playerId]?.paid ?? false, method },
+    }));
+  };
+
   // --- STATS & CALCULATIONS ---
   const playerStats = useMemo(() => {
     const stats: Record<number, PlayerStat> = {};
@@ -482,7 +506,15 @@ export function MabarProvider({ children }: { children: ReactNode }) {
         }
       }
       const adj = playerAdjustments[p.id] || 0;
-      stats[p.id] = { ...p, matchesPlayed: 0, totalCost: initialCost + adj, adjustment: adj };
+      const payment = playerPayments[p.id];
+      stats[p.id] = {
+        ...p,
+        matchesPlayed: 0,
+        totalCost: initialCost + adj,
+        adjustment: adj,
+        paid: payment?.paid ?? false,
+        paymentMethod: payment?.method ?? "cash",
+      };
     });
 
     matches.forEach((match) => {
@@ -500,7 +532,16 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     });
 
     return stats;
-  }, [players, matches, shuttlecockPrice, baseFee, paymentMode, allInFee, playerAdjustments]);
+  }, [
+    players,
+    matches,
+    shuttlecockPrice,
+    baseFee,
+    paymentMode,
+    allInFee,
+    playerAdjustments,
+    playerPayments,
+  ]);
 
   const totalKokUsed = matches.reduce((sum, match) => sum + match.shuttlecocks, 0);
   const totalBiayaTerkumpul = Object.values(playerStats).reduce(
@@ -552,6 +593,9 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     setMatchDate,
     playerAdjustments,
     setPlayerAdjustment,
+    playerPayments,
+    setPlayerPaid,
+    setPlayerPaymentMethod,
     expKokSlopQty,
     setExpKokSlopQty,
     expKokSlopPrice,
