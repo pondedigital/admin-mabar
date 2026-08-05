@@ -1,7 +1,7 @@
-import { Settings2 } from "lucide-react";
+import { CheckCircle2, Circle, Settings2 } from "lucide-react";
 import { useMabar } from "../../context/MabarContext";
 import { formatDate, formatRp } from "../../lib/format";
-import type { PlayerStat } from "../../types/mabar";
+import type { PaymentMethod, PlayerStat } from "../../types/mabar";
 
 export const RESUME_RECEIPT_ID = "struk-resume";
 
@@ -9,9 +9,24 @@ interface ResumeReceiptProps {
   onAdjustPlayer: (player: PlayerStat) => void;
 }
 
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  qris: "QRIS",
+  transfer: "Transfer",
+};
+
 export function ResumeReceipt({ onAdjustPlayer }: ResumeReceiptProps) {
-  const { pbName, gorName, matchDate, paymentMode, playerStats, totalKokUsed, totalBiayaTerkumpul } =
-    useMabar();
+  const {
+    pbName,
+    gorName,
+    matchDate,
+    paymentMode,
+    playerStats,
+    totalKokUsed,
+    totalBiayaTerkumpul,
+    setPlayerPaid,
+    setPlayerPaymentMethod,
+  } = useMabar();
 
   const billedPlayers = Object.values(playerStats)
     .filter((p) => p.present || p.totalCost > 0)
@@ -55,33 +70,72 @@ export function ResumeReceipt({ onAdjustPlayer }: ResumeReceiptProps) {
           {billedPlayers.map((player, index, arr) => (
             <div
               key={player.id}
-              className={`flex justify-between items-center py-3 ${
-                index !== arr.length - 1 ? "border-b border-gray-100" : ""
-              }`}
+              className={`py-3 ${index !== arr.length - 1 ? "border-b border-gray-100" : ""}`}
             >
-              <div>
-                <div className="font-bold text-gray-800 text-base">{player.name}</div>
-                <div className="text-[10px] text-gray-500 font-medium mt-0.5">
-                  Main: {player.matchesPlayed} kali
-                  {player.adjustment !== 0 && (
-                    <span className="ml-1 text-blue-600 font-bold">
-                      (Adj: {formatRp(player.adjustment)})
-                    </span>
-                  )}
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPlayerPaid(player.id, !player.paid)}
+                    className="text-gray-300 hover:text-emerald-500 print:hidden transition-colors shrink-0"
+                    title={player.paid ? "Tandai belum bayar" : "Tandai sudah bayar"}
+                  >
+                    {player.paid ? (
+                      <CheckCircle2 size={20} className="text-emerald-500" />
+                    ) : (
+                      <Circle size={20} />
+                    )}
+                  </button>
+                  <div>
+                    <div className="font-bold text-gray-800 text-base flex items-center gap-1.5">
+                      {player.name}
+                      {player.paid && (
+                        <span className="hidden print:inline text-emerald-600">✓</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-gray-500 font-medium mt-0.5">
+                      Main: {player.matchesPlayed} kali
+                      {player.adjustment !== 0 && (
+                        <span className="ml-1 text-blue-600 font-bold">
+                          (Adj: {formatRp(player.adjustment)})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right flex items-center gap-3">
+                  <button
+                    onClick={() => onAdjustPlayer(player)}
+                    className="p-1.5 text-gray-400 hover:text-blue-500 bg-gray-50 rounded-md border border-gray-200 print:hidden transition-colors"
+                    title="Penyesuaian Harga"
+                  >
+                    <Settings2 size={14} />
+                  </button>
+                  <div className="font-black text-gray-800 text-lg w-24 text-right">
+                    {formatRp(player.totalCost)}
+                  </div>
                 </div>
               </div>
-              <div className="text-right flex items-center gap-3">
-                <button
-                  onClick={() => onAdjustPlayer(player)}
-                  className="p-1.5 text-gray-400 hover:text-blue-500 bg-gray-50 rounded-md border border-gray-200 print:hidden transition-colors"
-                  title="Penyesuaian Harga"
-                >
-                  <Settings2 size={14} />
-                </button>
-                <div className="font-black text-gray-800 text-lg w-24 text-right">
-                  {formatRp(player.totalCost)}
+
+              {player.paid && (
+                <div className="flex items-center gap-1.5 mt-2 ml-7">
+                  <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mr-1">
+                    Bayar:
+                  </span>
+                  {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map((method) => (
+                    <button
+                      key={method}
+                      onClick={() => setPlayerPaymentMethod(player.id, method)}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors print:border-none ${
+                        player.paymentMethod === method
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : "bg-white border-gray-200 text-gray-500 hover:border-emerald-300 print:hidden"
+                      }`}
+                    >
+                      {PAYMENT_METHOD_LABELS[method]}
+                    </button>
+                  ))}
                 </div>
-              </div>
+              )}
             </div>
           ))}
         </div>
