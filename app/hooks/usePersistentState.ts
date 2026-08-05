@@ -3,9 +3,9 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 const STORAGE_PREFIX = "mabar_data:";
 
 function readStoredValue<T>(key: string): T | undefined {
-  if (typeof sessionStorage === "undefined") return undefined;
+  if (typeof localStorage === "undefined") return undefined;
   try {
-    const raw = sessionStorage.getItem(STORAGE_PREFIX + key);
+    const raw = localStorage.getItem(STORAGE_PREFIX + key);
     if (raw === null) return undefined;
     return JSON.parse(raw) as T;
   } catch {
@@ -14,8 +14,8 @@ function readStoredValue<T>(key: string): T | undefined {
 }
 
 /**
- * Sama seperti useState, tapi nilainya disimpan ke sessionStorage sehingga
- * tidak hilang saat halaman di-refresh selama tab masih terbuka.
+ * Sama seperti useState, tapi nilainya disimpan ke localStorage sehingga
+ * tidak hilang saat halaman di-refresh atau dibuka ulang.
  */
 export function usePersistentState<T>(
   key: string,
@@ -31,9 +31,9 @@ export function usePersistentState<T>(
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+      localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
     } catch {
-      // sessionStorage penuh atau tidak tersedia — data tetap hidup di state
+      // localStorage penuh atau tidak tersedia — data tetap hidup di state
     }
   }, [key, value]);
 
@@ -42,8 +42,8 @@ export function usePersistentState<T>(
 
 /** Hapus semua data mabar yang tersimpan (dipakai saat logout / sesi habis). */
 export function clearPersistentState(): void {
-  if (typeof sessionStorage === "undefined") return;
-  Object.keys(sessionStorage)
+  if (typeof localStorage === "undefined") return;
+  Object.keys(localStorage)
     .filter((k) => k.startsWith(STORAGE_PREFIX))
-    .forEach((k) => sessionStorage.removeItem(k));
+    .forEach((k) => localStorage.removeItem(k));
 }
