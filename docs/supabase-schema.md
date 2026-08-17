@@ -361,3 +361,371 @@ players → mabar_sessions → session_players → matches/queue → expenses �
 frontend integration) rather than wiring everything at once — each phase
 lines up with one table group above and can be tested against a running
 `supabase start` instance before moving to the next.
+
+---
+
+## 3. Multi-PB support (clubs) — schema addition
+
+Sections 1–2 assumed one shared, global mabar context. That's no longer
+true: an admin account can now handle **multiple PBs** (clubs), and
+`MabarSettingsForm` lets them switch which PB they're currently working on.
+This is a real multi-tenancy change — different PBs' rosters, matches, and
+money now live in the same tables — so it also **tightens RLS**, which was
+previously "any authenticated user, full access" everywhere.
+
+**Design decisions made without asking back** (flagging them here so
+they're easy to correct):
+- **Players stay one shared roster** across all PBs (no `pb_id` on
+  `players`). Autocomplete/dedup on the "Tambah Pemain" form matches by name
+  against the whole roster, not just the active PB — the same person is the
+  same person even if they play at two clubs.
+- **Switching PB in Settings swaps the entire active session** (players
+  attending today, matches, queue, expenses) to that PB's own open
+  `mabar_sessions` row — it does not relabel/move the session you were just
+  looking at. Each PB keeps its own "today."
+- **"Hapus" on a player now only removes them from today's session**
+  (`mabar_session_players`), not the shared roster row — deleting the
+  roster row would fragment that player's history at every other PB/session
+  they've ever played.
+
+### Run this against the already-deployed schema
+
+Ordered so every `references`/join target exists before anything that
+depends on it, and safe to re-run end-to-end (`if not exists` / `drop ...
+if exists` guards throughout) regardless of how far a previous attempt got.
+
+```sql
+-- 1. PBs (clubs) as a first-class entity.
+create table if not exists public.pbs (
+  id bigint generated always as identity primary key,
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+alter table public.pbs enable row level security;
+
+drop policy if exists "authenticated users can read pbs" on public.pbs;
+create policy "authenticated users can read pbs"
+  on public.pbs for select
+  to authenticated
+  using (true);
+
+-- 2. Migrate mabar_sessions.pb_name (free text) -> pbs + pb_id. Must run
+--    before anything below that references mabar_sessions.pb_id.
+insert into public.pbs (name)
+select distinct pb_name from public.mabar_sessions
+where pb_name is not null and pb_name <> ''
+on conflict (name) do nothing;
+
+alter table public.mabar_sessions add column if not exists pb_id bigint references public.pbs (id);
+
+update public.mabar_sessions s
+set pb_id = p.id
+from public.pbs p
+where p.name = s.pb_name
+  and s.pb_id is null;
+
+-- If this returns any rows, assign pb_id to them by hand before continuing
+-- (a session whose pb_name was blank has no pb to migrate into):
+--   select id, pb_name, created_by from public.mabar_sessions where pb_id is null;
+
+alter table public.mabar_sessions alter column pb_id set not null;
+alter table public.mabar_sessions drop column if exists pb_name;
+
+create index if not exists mabar_sessions_pb_idx on public.mabar_sessions (pb_id);
+
+-- 3. Many-to-many: which admins handle which PB (one admin -> many PBs, and
+--    vice versa, in case a club ever has co-admins).
+create table if not exists public.pb_admins (
+  id bigint generated always as identity primary key,
+  pb_id bigint not null references public.pbs (id) on delete cascade,
+  admin_id uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (pb_id, admin_id)
+);
+
+create index if not exists pb_admins_pb_idx on public.pb_admins (pb_id);
+create index if not exists pb_admins_admin_idx on public.pb_admins (admin_id);
+
+alter table public.pb_admins enable row level security;
+
+drop policy if exists "admins can read their own pb_admins rows" on public.pb_admins;
+create policy "admins can read their own pb_admins rows"
+  on public.pb_admins for select
+  to authenticated
+  using ((select auth.uid()) = admin_id);
+
+-- Best-effort: whoever created a session under a given pb_name becomes an
+-- admin of that PB. (Needs mabar_sessions.pb_id from step 2.)
+insert into public.pb_admins (pb_id, admin_id)
+select distinct pb_id, created_by
+from public.mabar_sessions
+where created_by is not null
+on conflict (pb_id, admin_id) do nothing;
+
+-- 4. Helper schema + functions (now that mabar_sessions.pb_id and
+--    pb_admins both exist). Never exposed via PostgREST, since only
+--    `public` is exposed by default — no grants/revokes needed.
+create schema if not exists private;
+
+create or replace function private.is_pb_admin(p_pb_id bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.pb_admins
+    where pb_id = p_pb_id and admin_id = (select auth.uid())
+  );
+$$;
+
+create or replace function private.is_pb_admin_of_session(p_session_id bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.mabar_sessions s
+    join public.pb_admins pa on pa.pb_id = s.pb_id
+    where s.id = p_session_id and pa.admin_id = (select auth.uid())
+  );
+$$;
+
+create or replace function private.is_pb_admin_of_match(p_match_id bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.matches m
+    join public.mabar_sessions s on s.id = m.mabar_session_id
+    join public.pb_admins pa on pa.pb_id = s.pb_id
+    where m.id = p_match_id and pa.admin_id = (select auth.uid())
+  );
+$$;
+
+create or replace function private.is_pb_admin_of_queued_match(p_queued_match_id bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.queued_matches q
+    join public.mabar_sessions s on s.id = q.mabar_session_id
+    join public.pb_admins pa on pa.pb_id = s.pb_id
+    where q.id = p_queued_match_id and pa.admin_id = (select auth.uid())
+  );
+$$;
+
+-- 5. Tighten RLS now that different PBs' data shares these tables. Drops
+--    both the original open policy name and this policy's own name, so
+--    re-running is safe either way.
+drop policy if exists "authenticated users have full access to mabar_sessions" on public.mabar_sessions;
+drop policy if exists "pb admins manage their own pb's mabar_sessions" on public.mabar_sessions;
+create policy "pb admins manage their own pb's mabar_sessions"
+  on public.mabar_sessions for all to authenticated
+  using ((select private.is_pb_admin(pb_id)))
+  with check ((select private.is_pb_admin(pb_id)));
+
+drop policy if exists "authenticated users have full access to mabar_session_players" on public.mabar_session_players;
+drop policy if exists "pb admins manage session_players for their sessions" on public.mabar_session_players;
+create policy "pb admins manage session_players for their sessions"
+  on public.mabar_session_players for all to authenticated
+  using ((select private.is_pb_admin_of_session(mabar_session_id)))
+  with check ((select private.is_pb_admin_of_session(mabar_session_id)));
+
+drop policy if exists "authenticated users have full access to matches" on public.matches;
+drop policy if exists "pb admins manage matches for their sessions" on public.matches;
+create policy "pb admins manage matches for their sessions"
+  on public.matches for all to authenticated
+  using ((select private.is_pb_admin_of_session(mabar_session_id)))
+  with check ((select private.is_pb_admin_of_session(mabar_session_id)));
+
+drop policy if exists "authenticated users have full access to match_players" on public.match_players;
+drop policy if exists "pb admins manage match_players for their matches" on public.match_players;
+create policy "pb admins manage match_players for their matches"
+  on public.match_players for all to authenticated
+  using ((select private.is_pb_admin_of_match(match_id)))
+  with check ((select private.is_pb_admin_of_match(match_id)));
+
+drop policy if exists "authenticated users have full access to queued_matches" on public.queued_matches;
+drop policy if exists "pb admins manage queued_matches for their sessions" on public.queued_matches;
+create policy "pb admins manage queued_matches for their sessions"
+  on public.queued_matches for all to authenticated
+  using ((select private.is_pb_admin_of_session(mabar_session_id)))
+  with check ((select private.is_pb_admin_of_session(mabar_session_id)));
+
+drop policy if exists "authenticated users have full access to queued_match_players" on public.queued_match_players;
+drop policy if exists "pb admins manage queued_match_players for their queue" on public.queued_match_players;
+create policy "pb admins manage queued_match_players for their queue"
+  on public.queued_match_players for all to authenticated
+  using ((select private.is_pb_admin_of_queued_match(queued_match_id)))
+  with check ((select private.is_pb_admin_of_queued_match(queued_match_id)));
+
+drop policy if exists "authenticated users have full access to expenses" on public.expenses;
+drop policy if exists "pb admins manage expenses for their sessions" on public.expenses;
+create policy "pb admins manage expenses for their sessions"
+  on public.expenses for all to authenticated
+  using ((select private.is_pb_admin_of_session(mabar_session_id)))
+  with check ((select private.is_pb_admin_of_session(mabar_session_id)));
+```
+
+`players` and `pbs` themselves stay readable by any authenticated user
+(names/levels and club names aren't sensitive, and the shared roster is what
+makes cross-PB dedup possible) — only the session-scoped tables (attendance,
+matches, money) are now locked to each PB's own admins.
+
+### Seed PBs + assign admins
+
+The migration above only creates `pbs` rows for PB names that already
+existed in `mabar_sessions.pb_name`. If you're starting fresh (no sessions
+created yet), create the PBs and assign each of the 4 seeded admins by hand:
+
+```sql
+insert into public.pbs (name) values
+  ('PB PONDE'),
+  ('PB PONDE'),
+  ('PB PONDE'),
+  ('PB PONDE')
+on conflict (name) do nothing;
+
+insert into public.pb_admins (pb_id, admin_id)
+select pbs.id, profiles.id
+from public.pbs
+join public.profiles
+  on (pbs.name, profiles.username) in (
+    ('PB Windo', 'admin-windo'),
+    ('PB Muchlis', 'admin-muchlis'),
+    ('PB Pandu', 'admin-pandu'),
+    ('PB Lala', 'admin-lala')
+  )
+on conflict (pb_id, admin_id) do nothing;
+```
+
+Edit the PB names and username mapping to match reality first (e.g. if one
+admin should handle two PBs, just add another row).
+
+### React code changes for this increment
+
+| File | Change |
+|---|---|
+| `app/types/db.ts` | `MabarSessionRow.pb_name` → `pb_id: number`; added `PbRow`, `PbAdminRow` |
+| `app/lib/services/pbs.ts` (new) | `listMyPbs(userId)` — PBs this admin administers, via `pb_admins` join `pbs` |
+| `app/lib/services/sessions.ts` | `getOrCreateOpenSession(userId, pbId)` now scopes the "open session" lookup by `pb_id`, not just globally |
+| `app/lib/services/players.ts` | Added `listRoster()` (whole shared roster, for autocomplete), `addExistingPlayerToSession(...)` (reuse an existing roster row), `removeFromSession(...)` (replaces the old `deletePlayer`, which hard-deleted the shared roster row) |
+| `app/context/MabarContext.tsx` | Two-stage load: (1) resolve the logged-in admin's `pbOptions` + the shared `playerRoster`, defaulting `activePbId` to the last one used (persisted in `localStorage`) or the first option; (2) load/create that PB's open session and its data. `setActivePbId` re-runs stage 2. `addPlayer` now checks `playerRoster` first and reuses the existing `player_id` instead of inserting a duplicate roster row when the name matches |
+| `app/components/tagihan/MabarSettingsForm.tsx` | "Nama PB" free-text input replaced with a PB picker (`<select>` when the admin has >1 PB, plain read-only text when they only have one) |
+| `app/components/pemain/PemainTab.tsx` | Name input gained a `<datalist>` sourced from `playerRoster`, and prefills the level dropdown when the typed name exactly matches an existing roster player |
+
+---
+
+## 4. Reporting queries
+
+Ad-hoc SQL for questions the app's UI doesn't answer today (run these
+directly in the Supabase SQL editor — they bypass RLS since the editor runs
+as the `postgres`/service role).
+
+### Player ranking per PB, last 3 months
+
+Same ranking definition as the in-app "Klasemen" tab
+(`app/components/klasemen/Leaderboard.tsx`): wins first, point differential
+as tiebreaker, over **finished** matches only. `match_players.position`
+determines team (first half of positions = Team A, same rule as
+`splitTeams()` in `app/lib/match.ts`), unlike `queued_match_players` which
+already stores an explicit team column.
+
+```sql
+with recent_matches as (
+  select m.id as match_id, s.pb_id, m.score_a, m.score_b
+  from public.matches m
+  join public.mabar_sessions s on s.id = m.mabar_session_id
+  where m.status = 'finished'
+    and s.match_date >= (current_date - interval '3 months')
+),
+match_team_size as (
+  select match_id, count(*) as team_size
+  from public.match_players
+  group by match_id
+),
+match_player_teams as (
+  select
+    mp.match_id,
+    mp.player_id,
+    case when mp.position < ceil(mts.team_size / 2.0) then 'A' else 'B' end as team
+  from public.match_players mp
+  join match_team_size mts on mts.match_id = mp.match_id
+),
+player_match_results as (
+  select
+    rm.pb_id,
+    mpt.player_id,
+    case when (mpt.team = 'A' and rm.score_a > rm.score_b)
+           or (mpt.team = 'B' and rm.score_b > rm.score_a) then 1 else 0 end as win,
+    case when (mpt.team = 'A' and rm.score_a < rm.score_b)
+           or (mpt.team = 'B' and rm.score_b < rm.score_a) then 1 else 0 end as lose,
+    case when mpt.team = 'A' then rm.score_a - rm.score_b else rm.score_b - rm.score_a end
+      as point_diff
+  from recent_matches rm
+  join match_player_teams mpt on mpt.match_id = rm.match_id
+),
+standings as (
+  select pb_id, player_id,
+    count(*) as played, sum(win) as wins, sum(lose) as losses, sum(point_diff) as point_diff
+  from player_match_results
+  group by pb_id, player_id
+)
+select
+  pb.name as pb_name,
+  pl.name as player_name,
+  st.played, st.wins, st.losses, st.point_diff,
+  rank() over (partition by st.pb_id order by st.wins desc, st.point_diff desc) as rank_in_pb
+from standings st
+join public.pbs pb on pb.id = st.pb_id
+join public.players pl on pl.id = st.player_id
+order by pb.name, rank_in_pb;
+```
+
+This covers every PB ("owned by any admin"). To scope it to one admin's own
+PBs, add `where st.pb_id in (select pb_id from public.pb_admins where admin_id = '<uuid>')`
+before the final `order by`.
+
+### Players categorized by level, per PB
+
+"Level" is stored per session (`mabar_session_players.level_at_session`), so
+this uses each player's level from their **most recent** session at that PB.
+
+```sql
+with latest_level as (
+  select distinct on (s.pb_id, msp.player_id)
+    s.pb_id, msp.player_id, msp.level_at_session
+  from public.mabar_session_players msp
+  join public.mabar_sessions s on s.id = msp.mabar_session_id
+  order by s.pb_id, msp.player_id, s.match_date desc, s.created_at desc
+)
+select pb.name as pb_name, ll.level_at_session as level, pl.name as player_name
+from latest_level ll
+join public.pbs pb on pb.id = ll.pb_id
+join public.players pl on pl.id = ll.player_id
+order by pb.name, ll.level_at_session, pl.name;
+```
+
+Add `count(*)` instead of listing names if you just want totals per level per PB:
+
+```sql
+select pb.name as pb_name, ll.level_at_session as level, count(*) as player_count
+from latest_level ll  -- reuse the CTE above
+join public.pbs pb on pb.id = ll.pb_id
+group by pb.name, ll.level_at_session
+order by pb.name, ll.level_at_session;
+```

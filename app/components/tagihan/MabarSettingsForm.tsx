@@ -5,8 +5,10 @@ import { useMabar } from "../../context/MabarContext";
 export function MabarSettingsForm() {
   const [isOpen, setIsOpen] = useState(true);
   const {
+    pbOptions,
+    activePbId,
+    setActivePbId,
     pbName,
-    setPbName,
     gorName,
     setGorName,
     matchDate,
@@ -45,13 +47,28 @@ export function MabarSettingsForm() {
       {isOpen && (
       <div className="space-y-4 mt-4">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Nama PB</label>
-          <input
-            type="text"
-            value={pbName}
-            onChange={(e) => setPbName(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-          />
+          <label className="block text-xs font-medium text-gray-500 mb-1">PB yang Ditangani</label>
+          {pbOptions.length <= 1 ? (
+            <p className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700">
+              {pbName || "-"}
+            </p>
+          ) : (
+            <select
+              value={activePbId ?? ""}
+              onChange={(e) => setActivePbId(Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+            >
+              {pbOptions.map((pb) => (
+                <option key={pb.id} value={pb.id}>
+                  {pb.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="text-[11px] text-gray-400 mt-1">
+            Beralih PB akan memuat mabar aktif milik PB tersebut (pemain, pertandingan, keuangan
+            terpisah per PB).
+          </p>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Nama GOR</label>

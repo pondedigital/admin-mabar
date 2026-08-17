@@ -7,9 +7,18 @@ import type { PlayerLevel } from "../../types/mabar";
 const LEVEL_OPTIONS = Object.keys(LEVELS) as PlayerLevel[];
 
 export function PemainTab() {
-  const { players, addPlayer, togglePresence, deletePlayer, updatePlayerLevel } = useMabar();
+  const { players, playerRoster, addPlayer, togglePresence, deletePlayer, updatePlayerLevel } =
+    useMabar();
   const [newPlayerName, setNewPlayerName] = useState("");
   const [newPlayerLevel, setNewPlayerLevel] = useState<PlayerLevel>("Menengah");
+
+  const handleNameChange = (value: string) => {
+    setNewPlayerName(value);
+    // Nama persis cocok dengan roster klub -> prefill level yang sudah tercatat,
+    // supaya pemain yang sama tidak berakhir dengan baris ganda di roster.
+    const match = playerRoster.find((p) => p.name.toLowerCase() === value.trim().toLowerCase());
+    if (match) setNewPlayerLevel(match.level);
+  };
 
   const handleAddPlayer = (e: FormEvent) => {
     e.preventDefault();
@@ -29,9 +38,15 @@ export function PemainTab() {
             type="text"
             placeholder="Nama Pemain..."
             value={newPlayerName}
-            onChange={(e) => setNewPlayerName(e.target.value)}
+            onChange={(e) => handleNameChange(e.target.value)}
+            list="player-roster-suggestions"
             className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-400"
           />
+          <datalist id="player-roster-suggestions">
+            {playerRoster.map((p) => (
+              <option key={p.id} value={p.name} />
+            ))}
+          </datalist>
           <div className="flex gap-2">
             <select
               value={newPlayerLevel}

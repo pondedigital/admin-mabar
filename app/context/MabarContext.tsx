@@ -9,11 +9,14 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { usePersistentState } from "../hooks/usePersistentState";
 import { getLocalDate } from "../lib/format";
 import { generateBalancedMatches } from "../lib/pairing";
 import * as expensesService from "../lib/services/expenses";
 import * as matchesService from "../lib/services/matches";
 import * as playersService from "../lib/services/players";
+import type { RosterPlayer } from "../lib/services/players";
+import { listMyPbs, type PbOption } from "../lib/services/pbs";
 import { getOrCreateOpenSession, updateSessionSettings } from "../lib/services/sessions";
 import { supabase } from "../lib/supabase/client";
 import type { ExpenseCategory } from "../types/db";
@@ -30,8 +33,14 @@ import type {
 } from "../types/mabar";
 
 interface MabarContextValue {
+  // PB (klub) yang ditangani admin ini
+  pbOptions: PbOption[];
+  activePbId: number | null;
+  setActivePbId: (id: number) => void;
+
   // Pemain
   players: Player[];
+  playerRoster: RosterPlayer[];
   addPlayer: (name: string, level: PlayerLevel) => void;
   togglePresence: (id: number) => void;
   deletePlayer: (id: number) => void;
@@ -74,7 +83,6 @@ interface MabarContextValue {
   gorName: string;
   setGorName: Dispatch<SetStateAction<string>>;
   pbName: string;
-  setPbName: Dispatch<SetStateAction<string>>;
   matchDate: string;
   setMatchDate: Dispatch<SetStateAction<string>>;
 
@@ -127,6 +135,14 @@ const CLOSED_MODAL: ModalState = {
 };
 
 export function MabarProvider({ children }: { children: ReactNode }) {
+  const [userId, setUserId] = useState<string | null>(null);
+  const [pbOptions, setPbOptions] = useState<PbOption[]>([]);
+  const [activePbId, setActivePbIdState] = usePersistentState<number | null>(
+    "activePbId",
+    null
+  );
+  const [playerRoster, setPlayerRoster] = useState<RosterPlayer[]>([]);
+
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -146,7 +162,6 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   const [shuttlecockPrice, setShuttlecockPrice] = useState(3000);
   const [baseFee, setBaseFee] = useState(0);
   const [gorName, setGorName] = useState("");
-  const [pbName, setPbName] = useState("ADMIN PONDE");
   const [matchDate, setMatchDate] = useState(() => getLocalDate());
 
   // Pengeluaran (mirrors `expenses` rows, synced via debounced effect below)
@@ -170,7 +185,9 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   const reportError = (prefix: string) => (err: unknown) =>
     showAlert(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
 
-  // --- INITIAL LOAD ---
+  const pbName = pbOptions.find((pb) => pb.id === activePbId)?.name ?? "";
+
+  // --- STEP 1: who's logged in, which PBs do they handle, and the shared roster ---
   useEffect(() => {
     let cancelled = false;
 
@@ -180,7 +197,42 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("Tidak ada sesi login aktif.");
 
-      const session = await getOrCreateOpenSession(user.id);
+      const [pbs, roster] = await Promise.all([listMyPbs(user.id), playersService.listRoster()]);
+      if (cancelled) return;
+      if (pbs.length === 0) {
+        throw new Error(
+          "Akun ini belum terhubung ke PB manapun. Hubungi admin lain untuk didaftarkan (tabel pb_admins)."
+        );
+      }
+
+      setUserId(user.id);
+      setPbOptions(pbs);
+      setPlayerRoster(roster);
+
+      const stillValid = activePbId !== null && pbs.some((pb) => pb.id === activePbId);
+      setActivePbIdState(stillValid ? activePbId : pbs[0].id);
+    }
+
+    load().catch((err) => {
+      if (cancelled) return;
+      setLoadError(err instanceof Error ? err.message : String(err));
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --- STEP 2: load (or create) the active PB's open session + its data ---
+  useEffect(() => {
+    if (userId === null || activePbId === null) return;
+    let cancelled = false;
+    setLoading(true);
+
+    async function load() {
+      const session = await getOrCreateOpenSession(userId!, activePbId!);
       if (cancelled) return;
 
       const [sessionPlayers, matchList, queueList, expenseRows] = await Promise.all([
@@ -192,7 +244,6 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
 
       setGorName(session.gor_name);
-      setPbName(session.pb_name);
       setMatchDate(session.match_date);
       setNumCourts(session.num_courts);
       setPaymentMode(session.payment_mode);
@@ -205,6 +256,7 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       setPlayerPayments(sessionPlayers.payments);
       setMatches(matchList);
       setQueue(queueList);
+      setSelectedPlayers([]);
 
       const findExpense = (category: ExpenseCategory) =>
         expenseRows.find((e) => e.category === category);
@@ -215,6 +267,8 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       setExpLapangan(findExpense("lapangan")?.unit_price ?? 0);
       setExpLain(findExpense("lain")?.unit_price ?? 0);
 
+      settingsSkipRef.current = true;
+      expenseSkipRef.current = true;
       setSessionId(session.id);
       setLoading(false);
     }
@@ -228,9 +282,12 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, activePbId]);
 
-  // --- SYNC: pengaturan mabar -> mabar_sessions (debounced, skipped during initial load) ---
+  const setActivePbId = (id: number) => setActivePbIdState(id);
+
+  // --- SYNC: pengaturan mabar -> mabar_sessions (debounced, skipped right after (re)load) ---
   const settingsSkipRef = useRef(true);
   useEffect(() => {
     if (loading || sessionId === null) return;
@@ -241,7 +298,6 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     const timeout = setTimeout(() => {
       updateSessionSettings(sessionId, {
         gor_name: gorName,
-        pb_name: pbName,
         match_date: matchDate,
         num_courts: numCourts,
         payment_mode: paymentMode,
@@ -256,7 +312,6 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     loading,
     sessionId,
     gorName,
-    pbName,
     matchDate,
     numCourts,
     paymentMode,
@@ -265,7 +320,7 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     baseFee,
   ]);
 
-  // --- SYNC: pengeluaran -> expenses (debounced, skipped during initial load) ---
+  // --- SYNC: pengeluaran -> expenses (debounced, skipped right after (re)load) ---
   const expenseSkipRef = useRef(true);
   useEffect(() => {
     if (loading || sessionId === null) return;
@@ -318,11 +373,43 @@ export function MabarProvider({ children }: { children: ReactNode }) {
 
   // --- ACTIONS: PEMAIN ---
   const addPlayer = (name: string, level: PlayerLevel) => {
-    if (!name.trim() || sessionId === null) return;
+    const trimmed = name.trim();
+    if (!trimmed || sessionId === null) return;
+
+    const alreadyInSession = players.some(
+      (p) => p.name.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (alreadyInSession) {
+      showAlert(`${trimmed} sudah ada di daftar pemain hari ini.`);
+      return;
+    }
+
     const pairingOffset = minEffectiveCount();
-    playersService
-      .addPlayer(sessionId, name.trim(), level, pairingOffset)
-      .then((newPlayer) => setPlayers((prev) => [...prev, newPlayer]))
+    // Nama sudah ada di roster klub (lintas-PB) -> pakai player_id yang sama,
+    // jangan buat baris players baru (supaya rekap/klasemen tidak pecah).
+    const existing = playerRoster.find((p) => p.name.toLowerCase() === trimmed.toLowerCase());
+
+    const promise = existing
+      ? playersService.addExistingPlayerToSession(
+          sessionId,
+          existing.id,
+          existing.name,
+          level,
+          pairingOffset
+        )
+      : playersService.addPlayer(sessionId, trimmed, level, pairingOffset);
+
+    promise
+      .then((newPlayer) => {
+        setPlayers((prev) => [...prev, newPlayer]);
+        if (!existing) {
+          setPlayerRoster((prev) =>
+            [...prev, { id: newPlayer.id, name: newPlayer.name, level }].sort((a, b) =>
+              a.name.localeCompare(b.name)
+            )
+          );
+        }
+      })
       .catch(reportError("Gagal menambah pemain"));
   };
 
@@ -356,12 +443,14 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       );
       return;
     }
+    // Hanya keluar dari sesi hari ini — roster klub (players) tetap ada
+    // supaya riwayat & klasemen di PB lain / sesi lain tidak hilang.
     setPlayers((prev) => prev.filter((p) => p.id !== id));
     setQueue((prev) => prev.filter((q) => !q.teamA.includes(id) && !q.teamB.includes(id)));
     (async () => {
       try {
         await matchesService.removeQueuedMatchesContainingPlayer(id);
-        await playersService.deletePlayer(id);
+        await playersService.removeFromSession(sessionId!, id);
       } catch (err) {
         reportError("Gagal menghapus pemain")(err);
       }
@@ -371,6 +460,7 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   const updatePlayerLevel = (id: number, level: PlayerLevel) => {
     if (sessionId === null) return;
     setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, level } : p)));
+    setPlayerRoster((prev) => prev.map((p) => (p.id === id ? { ...p, level } : p)));
     playersService
       .updatePlayerLevel(sessionId, id, level)
       .catch(reportError("Gagal memperbarui level pemain"));
@@ -729,7 +819,11 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   }
 
   const value: MabarContextValue = {
+    pbOptions,
+    activePbId,
+    setActivePbId,
     players,
+    playerRoster,
     addPlayer,
     togglePresence,
     deletePlayer,
@@ -761,7 +855,6 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     gorName,
     setGorName,
     pbName,
-    setPbName,
     matchDate,
     setMatchDate,
     playerAdjustments,

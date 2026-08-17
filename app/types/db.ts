@@ -16,8 +16,8 @@ export interface PlayerRow {
 
 export interface MabarSessionRow {
   id: number;
+  pb_id: number;
   gor_name: string;
-  pb_name: string;
   match_date: string;
   num_courts: number;
   payment_mode: PaymentMode;
@@ -28,6 +28,19 @@ export interface MabarSessionRow {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PbRow {
+  id: number;
+  name: string;
+  created_at: string;
+}
+
+export interface PbAdminRow {
+  id: number;
+  pb_id: number;
+  admin_id: string;
+  created_at: string;
 }
 
 export interface MabarSessionPlayerRow {

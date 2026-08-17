@@ -1,6 +1,22 @@
 import { supabase } from "../supabase/client";
 import type { Player, PaymentMethod, PlayerLevel, PlayerPayment } from "../../types/mabar";
 
+export interface RosterPlayer {
+  id: number;
+  name: string;
+  level: PlayerLevel;
+}
+
+/** The whole club roster (shared across every PB) — used for add-player autocomplete/dedup. */
+export async function listRoster(): Promise<RosterPlayer[]> {
+  const { data, error } = await supabase
+    .from("players")
+    .select("id, name, default_level")
+    .order("name", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ id: row.id, name: row.name, level: row.default_level }));
+}
+
 interface SessionPlayerRow {
   player_id: number;
   level_at_session: PlayerLevel;
@@ -79,6 +95,26 @@ export async function addPlayer(
   };
 }
 
+/** Adds a player who's already on the roster to this session, without duplicating the roster row. */
+export async function addExistingPlayerToSession(
+  sessionId: number,
+  playerId: number,
+  playerName: string,
+  level: PlayerLevel,
+  pairingOffset: number
+): Promise<Player> {
+  const { error } = await supabase.from("mabar_session_players").insert({
+    mabar_session_id: sessionId,
+    player_id: playerId,
+    level_at_session: level,
+    present: true,
+    pairing_offset: pairingOffset,
+  });
+  if (error) throw error;
+
+  return { id: playerId, name: playerName, present: true, level, pairingOffset };
+}
+
 /** Updates both the roster default and this session's level, keeping them in sync. */
 export async function updatePlayerLevel(
   sessionId: number,
@@ -111,9 +147,16 @@ export async function setPresence(
   if (error) throw error;
 }
 
-/** Deletes a player from the roster entirely (cascades to session/match/queue rows). */
-export async function deletePlayer(playerId: number): Promise<void> {
-  const { error } = await supabase.from("players").delete().eq("id", playerId);
+/**
+ * Removes a player from this session only — the shared roster row stays,
+ * since the same player may be reused in other sessions/PBs.
+ */
+export async function removeFromSession(sessionId: number, playerId: number): Promise<void> {
+  const { error } = await supabase
+    .from("mabar_session_players")
+    .delete()
+    .eq("mabar_session_id", sessionId)
+    .eq("player_id", playerId);
   if (error) throw error;
 }
 
