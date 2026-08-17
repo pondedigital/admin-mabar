@@ -10,6 +10,7 @@ import {
   type SetStateAction,
 } from "react";
 import { usePersistentState } from "../hooks/usePersistentState";
+import { signOut } from "../lib/auth";
 import { getLocalDate } from "../lib/format";
 import { generateBalancedMatches } from "../lib/pairing";
 import * as expensesService from "../lib/services/expenses";
@@ -858,7 +859,14 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       <div className="min-h-screen flex items-center justify-center p-6 text-center">
         <div>
           <p className="font-bold text-red-600 mb-1">Gagal memuat data dari Supabase</p>
-          <p className="text-sm text-gray-500">{loadError}</p>
+          <p className="text-sm text-gray-500 mb-4">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+          >
+            Login ulang
+          </button>
         </div>
       </div>
     );

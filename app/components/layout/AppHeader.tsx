@@ -1,4 +1,4 @@
-import { Lock, LogIn } from "lucide-react";
+import { Calendar, Lock, LogIn } from "lucide-react";
 import { useMabar } from "../../context/MabarContext";
 import { formatDate } from "../../lib/format";
 
@@ -7,8 +7,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ onLogout }: AppHeaderProps) {
-  const { pbName, gorName, matchDate, isSessionLocked, endSession, startNewSession } =
-    useMabar();
+  const { pbName, matchDate, isSessionLocked, endSession, startNewSession } = useMabar();
 
   return (
     <div className="bg-black text-yellow-400 p-3 sticky top-0 z-10 shadow-md flex flex-col items-center justify-center border-b-2 border-yellow-400 print:hidden relative">
@@ -28,13 +27,23 @@ export function AppHeader({ onLogout }: AppHeaderProps) {
         <h1 className="text-xl font-black tracking-wide uppercase">{pbName || "NAMA PB"}</h1>
       </div>
 
-      <div className="mt-2 text-[11px] font-medium bg-zinc-900 border border-yellow-500/30 text-yellow-200 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-inner">
-        <span>{gorName || "Atur GOR di Resume"}</span>
-        <span className="text-yellow-500/50 text-[10px]">•</span>
-        <span>{matchDate ? formatDate(matchDate) : "Tanggal Belum Diatur"}</span>
+      <div className="mt-3 w-full flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium text-yellow-200/80 flex items-center gap-1.5">
+          <Calendar size={12} />
+          {matchDate ? formatDate(matchDate) : "Tanggal Belum Diatur"}
+        </span>
+
+        {!isSessionLocked && (
+          <button
+            onClick={endSession}
+            className="flex items-center gap-1.5 text-[11px] font-bold text-white bg-gradient-to-b from-red-500 to-red-700 px-3.5 py-1.5 rounded-full shadow-md shadow-red-950/40 ring-1 ring-red-400/30 hover:from-red-400 hover:to-red-600 active:scale-95 transition-all"
+          >
+            <Lock size={12} /> Akhiri Mabar
+          </button>
+        )}
       </div>
 
-      {isSessionLocked ? (
+      {isSessionLocked && (
         <div className="mt-3 w-full flex flex-col items-center gap-2 bg-red-950/40 border border-red-500/40 rounded-lg px-3 py-2">
           <p className="text-[11px] font-bold text-red-300 flex items-center gap-1.5">
             <Lock size={12} /> SESI DITUTUP — DATA TERKUNCI
@@ -46,13 +55,6 @@ export function AppHeader({ onLogout }: AppHeaderProps) {
             Mulai Mabar Baru
           </button>
         </div>
-      ) : (
-        <button
-          onClick={endSession}
-          className="mt-3 text-[11px] font-bold text-red-300 bg-zinc-900 border border-red-500/30 px-3 py-1.5 rounded-full hover:bg-red-950/40 transition-colors flex items-center gap-1.5"
-        >
-          <Lock size={12} /> Akhiri Mabar
-        </button>
       )}
     </div>
   );
