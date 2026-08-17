@@ -1,15 +1,22 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { usePersistentState } from "../hooks/usePersistentState";
 import { getLocalDate } from "../lib/format";
 import { generateBalancedMatches } from "../lib/pairing";
+import * as expensesService from "../lib/services/expenses";
+import * as matchesService from "../lib/services/matches";
+import * as playersService from "../lib/services/players";
+import { getOrCreateOpenSession, updateSessionSettings } from "../lib/services/sessions";
+import { supabase } from "../lib/supabase/client";
+import type { ExpenseCategory } from "../types/db";
 import type {
   Match,
   ModalState,
@@ -120,49 +127,35 @@ const CLOSED_MODAL: ModalState = {
 };
 
 export function MabarProvider({ children }: { children: ReactNode }) {
-  const [players, setPlayers] = usePersistentState<Player[]>("players", []);
-  const [matches, setMatches] = usePersistentState<Match[]>("matches", []);
-  const [queue, setQueue] = usePersistentState<QueuedMatch[]>("queue", []);
-  const [selectedPlayers, setSelectedPlayers] = usePersistentState<number[]>(
-    "selectedPlayers",
-    []
-  );
-  const [playerAdjustments, setPlayerAdjustments] = usePersistentState<
-    Record<number, number>
-  >("playerAdjustments", {});
-  const [playerPayments, setPlayerPayments] = usePersistentState<
-    Record<number, PlayerPayment>
-  >("playerPayments", {});
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Pengaturan mabar
-  const [numCourts, setNumCourts] = usePersistentState("numCourts", 1);
-  const [paymentMode, setPaymentMode] = usePersistentState<PaymentMode>(
-    "paymentMode",
-    "lapangan_kok"
-  );
-  const [allInFee, setAllInFee] = usePersistentState("allInFee", 35000);
-  const [shuttlecockPrice, setShuttlecockPrice] = usePersistentState(
-    "shuttlecockPrice",
-    3000
-  );
-  const [baseFee, setBaseFee] = usePersistentState("baseFee", 0);
-  const [gorName, setGorName] = usePersistentState("gorName", "");
-  const [pbName, setPbName] = usePersistentState("pbName", "ADMIN PONDE");
-  const [matchDate, setMatchDate] = usePersistentState("matchDate", () => getLocalDate());
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [queue, setQueue] = useState<QueuedMatch[]>([]);
+  // Ephemeral UI selection only — not part of the DB schema, resets on refresh.
+  const [selectedPlayers, setSelectedPlayers] = useState<number[]>([]);
+  const [playerAdjustments, setPlayerAdjustments] = useState<Record<number, number>>({});
+  const [playerPayments, setPlayerPayments] = useState<Record<number, PlayerPayment>>({});
 
-  // Pengeluaran
-  const [expKokSlopQty, setExpKokSlopQty] = usePersistentState("expKokSlopQty", 0);
-  const [expKokSlopPrice, setExpKokSlopPrice] = usePersistentState(
-    "expKokSlopPrice",
-    110000
-  );
-  const [expKokSatuanQty, setExpKokSatuanQty] = usePersistentState("expKokSatuanQty", 0);
-  const [expKokSatuanPrice, setExpKokSatuanPrice] = usePersistentState(
-    "expKokSatuanPrice",
-    10000
-  );
-  const [expLapangan, setExpLapangan] = usePersistentState("expLapangan", 0);
-  const [expLain, setExpLain] = usePersistentState("expLain", 0);
+  // Pengaturan mabar (mirrors one `mabar_sessions` row, synced via debounced effect below)
+  const [numCourts, setNumCourts] = useState(1);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("lapangan_kok");
+  const [allInFee, setAllInFee] = useState(35000);
+  const [shuttlecockPrice, setShuttlecockPrice] = useState(3000);
+  const [baseFee, setBaseFee] = useState(0);
+  const [gorName, setGorName] = useState("");
+  const [pbName, setPbName] = useState("ADMIN PONDE");
+  const [matchDate, setMatchDate] = useState(() => getLocalDate());
+
+  // Pengeluaran (mirrors `expenses` rows, synced via debounced effect below)
+  const [expKokSlopQty, setExpKokSlopQty] = useState(0);
+  const [expKokSlopPrice, setExpKokSlopPrice] = useState(110000);
+  const [expKokSatuanQty, setExpKokSatuanQty] = useState(0);
+  const [expKokSatuanPrice, setExpKokSatuanPrice] = useState(10000);
+  const [expLapangan, setExpLapangan] = useState(0);
+  const [expLain, setExpLain] = useState(0);
 
   const [modal, setModal] = useState<ModalState>(CLOSED_MODAL);
 
@@ -173,6 +166,133 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     setModal({ isOpen: true, type: "confirm", message, onConfirm });
 
   const closeModal = () => setModal(CLOSED_MODAL);
+
+  const reportError = (prefix: string) => (err: unknown) =>
+    showAlert(`${prefix}: ${err instanceof Error ? err.message : String(err)}`);
+
+  // --- INITIAL LOAD ---
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Tidak ada sesi login aktif.");
+
+      const session = await getOrCreateOpenSession(user.id);
+      if (cancelled) return;
+
+      const [sessionPlayers, matchList, queueList, expenseRows] = await Promise.all([
+        playersService.listSessionPlayers(session.id),
+        matchesService.listMatches(session.id),
+        matchesService.listQueue(session.id),
+        expensesService.listExpenses(session.id),
+      ]);
+      if (cancelled) return;
+
+      setGorName(session.gor_name);
+      setPbName(session.pb_name);
+      setMatchDate(session.match_date);
+      setNumCourts(session.num_courts);
+      setPaymentMode(session.payment_mode);
+      setAllInFee(session.all_in_fee);
+      setShuttlecockPrice(session.shuttlecock_price);
+      setBaseFee(session.base_fee);
+
+      setPlayers(sessionPlayers.players);
+      setPlayerAdjustments(sessionPlayers.adjustments);
+      setPlayerPayments(sessionPlayers.payments);
+      setMatches(matchList);
+      setQueue(queueList);
+
+      const findExpense = (category: ExpenseCategory) =>
+        expenseRows.find((e) => e.category === category);
+      setExpKokSlopQty(findExpense("kok_slop")?.qty ?? 0);
+      setExpKokSlopPrice(findExpense("kok_slop")?.unit_price ?? 110000);
+      setExpKokSatuanQty(findExpense("kok_satuan")?.qty ?? 0);
+      setExpKokSatuanPrice(findExpense("kok_satuan")?.unit_price ?? 10000);
+      setExpLapangan(findExpense("lapangan")?.unit_price ?? 0);
+      setExpLain(findExpense("lain")?.unit_price ?? 0);
+
+      setSessionId(session.id);
+      setLoading(false);
+    }
+
+    load().catch((err) => {
+      if (cancelled) return;
+      setLoadError(err instanceof Error ? err.message : String(err));
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // --- SYNC: pengaturan mabar -> mabar_sessions (debounced, skipped during initial load) ---
+  const settingsSkipRef = useRef(true);
+  useEffect(() => {
+    if (loading || sessionId === null) return;
+    if (settingsSkipRef.current) {
+      settingsSkipRef.current = false;
+      return;
+    }
+    const timeout = setTimeout(() => {
+      updateSessionSettings(sessionId, {
+        gor_name: gorName,
+        pb_name: pbName,
+        match_date: matchDate,
+        num_courts: numCourts,
+        payment_mode: paymentMode,
+        all_in_fee: allInFee,
+        shuttlecock_price: shuttlecockPrice,
+        base_fee: baseFee,
+      }).catch(reportError("Gagal menyimpan pengaturan mabar"));
+    }, 600);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    loading,
+    sessionId,
+    gorName,
+    pbName,
+    matchDate,
+    numCourts,
+    paymentMode,
+    allInFee,
+    shuttlecockPrice,
+    baseFee,
+  ]);
+
+  // --- SYNC: pengeluaran -> expenses (debounced, skipped during initial load) ---
+  const expenseSkipRef = useRef(true);
+  useEffect(() => {
+    if (loading || sessionId === null) return;
+    if (expenseSkipRef.current) {
+      expenseSkipRef.current = false;
+      return;
+    }
+    const timeout = setTimeout(() => {
+      Promise.all([
+        expensesService.upsertExpense(sessionId, "kok_slop", expKokSlopQty, expKokSlopPrice),
+        expensesService.upsertExpense(sessionId, "kok_satuan", expKokSatuanQty, expKokSatuanPrice),
+        expensesService.upsertExpense(sessionId, "lapangan", 1, expLapangan),
+        expensesService.upsertExpense(sessionId, "lain", 1, expLain),
+      ]).catch(reportError("Gagal menyimpan pengeluaran"));
+    }, 600);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    loading,
+    sessionId,
+    expKokSlopQty,
+    expKokSlopPrice,
+    expKokSatuanQty,
+    expKokSatuanPrice,
+    expLapangan,
+    expLain,
+  ]);
 
   // --- HELPER: JUMLAH MAIN ---
   const realPlayCount = (playerId: number) =>
@@ -191,40 +311,41 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     setQueue((prev) =>
       prev.filter((q) => !q.teamA.includes(playerId) && !q.teamB.includes(playerId))
     );
+    return matchesService
+      .removeQueuedMatchesContainingPlayer(playerId)
+      .catch(reportError("Gagal memperbarui antrean"));
   };
 
   // --- ACTIONS: PEMAIN ---
   const addPlayer = (name: string, level: PlayerLevel) => {
-    if (!name.trim()) return;
-    setPlayers((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        name: name.trim(),
-        present: true,
-        level,
-        pairingOffset: minEffectiveCount(),
-      },
-    ]);
+    if (!name.trim() || sessionId === null) return;
+    const pairingOffset = minEffectiveCount();
+    playersService
+      .addPlayer(sessionId, name.trim(), level, pairingOffset)
+      .then((newPlayer) => setPlayers((prev) => [...prev, newPlayer]))
+      .catch(reportError("Gagal menambah pemain"));
   };
 
   const togglePresence = (id: number) => {
+    if (sessionId === null) return;
+    const player = players.find((p) => p.id === id);
+    if (!player) return;
+    const nowPresent = !player.present;
+    let pairingOffset = player.pairingOffset;
+    // Pemain yang baru hadir kembali disetarakan dengan jumlah main
+    // minimum saat ini agar tidak memonopoli antrean.
+    if (nowPresent) {
+      const target = Math.max(effectivePlayCount(player), minEffectiveCount(id));
+      pairingOffset = target - realPlayCount(id);
+    }
     setPlayers((prev) =>
-      prev.map((p) => {
-        if (p.id !== id) return p;
-        const nowPresent = !p.present;
-        let pairingOffset = p.pairingOffset;
-        // Pemain yang baru hadir kembali disetarakan dengan jumlah main
-        // minimum saat ini agar tidak memonopoli antrean.
-        if (nowPresent) {
-          const target = Math.max(effectivePlayCount(p), minEffectiveCount(id));
-          pairingOffset = target - realPlayCount(id);
-        }
-        return { ...p, present: nowPresent, pairingOffset };
-      })
+      prev.map((p) => (p.id === id ? { ...p, present: nowPresent, pairingOffset } : p))
     );
     setSelectedPlayers((prev) => prev.filter((pid) => pid !== id));
     removeFromQueue(id);
+    playersService
+      .setPresence(sessionId, id, nowPresent, pairingOffset)
+      .catch(reportError("Gagal memperbarui kehadiran"));
   };
 
   const deletePlayer = (id: number) => {
@@ -236,11 +357,23 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       return;
     }
     setPlayers((prev) => prev.filter((p) => p.id !== id));
-    removeFromQueue(id);
+    setQueue((prev) => prev.filter((q) => !q.teamA.includes(id) && !q.teamB.includes(id)));
+    (async () => {
+      try {
+        await matchesService.removeQueuedMatchesContainingPlayer(id);
+        await playersService.deletePlayer(id);
+      } catch (err) {
+        reportError("Gagal menghapus pemain")(err);
+      }
+    })();
   };
 
   const updatePlayerLevel = (id: number, level: PlayerLevel) => {
+    if (sessionId === null) return;
     setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, level } : p)));
+    playersService
+      .updatePlayerLevel(sessionId, id, level)
+      .catch(reportError("Gagal memperbarui level pemain"));
   };
 
   // --- ACTIONS: PERTANDINGAN ---
@@ -256,8 +389,6 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const activeMatchCount = matches.filter((m) => m.status === "active").length;
-
   // Lapangan kosong dengan nomor terkecil (1..numCourts)
   const nextFreeCourt = () => {
     const used = new Set(
@@ -270,6 +401,7 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   };
 
   const createMatch = () => {
+    if (sessionId === null) return;
     if (selectedPlayers.length < 2) {
       showAlert("Pilih minimal 2 pemain untuk memulai pertandingan!");
       return;
@@ -296,57 +428,61 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const newMatch: Match = {
-      id: Date.now(),
-      players: selectedPlayers,
-      shuttlecocks: 1,
-      scoreA: 0,
-      scoreB: 0,
-      status: "active",
-      court: availableCourt,
-    };
-    setMatches((prev) => [newMatch, ...prev]);
+    const playerIds = selectedPlayers;
     setSelectedPlayers([]);
+    matchesService
+      .createMatch(sessionId, playerIds, availableCourt)
+      .then((newMatch) => setMatches((prev) => [newMatch, ...prev]))
+      .catch(reportError("Gagal membuat pertandingan"));
   };
 
   // Match manual masuk antrean — urutan pilih menentukan tim (paruh pertama
   // jadi Tim A), sama dengan pembagian tim di splitTeams.
   const queueManualMatch = () => {
+    if (sessionId === null) return;
     if (selectedPlayers.length < 2) {
       showAlert("Pilih minimal 2 pemain untuk membuat antrean!");
       return;
     }
 
     const half = Math.ceil(selectedPlayers.length / 2);
-    setQueue((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        teamA: selectedPlayers.slice(0, half),
-        teamB: selectedPlayers.slice(half),
-      },
-    ]);
+    const teamA = selectedPlayers.slice(0, half);
+    const teamB = selectedPlayers.slice(half);
     setSelectedPlayers([]);
+    matchesService
+      .insertQueuedMatch(sessionId, teamA, teamB)
+      .then((newQueue) => setQueue((prev) => [...prev, newQueue]))
+      .catch(reportError("Gagal membuat antrean"));
   };
 
   const updateKok = (matchId: number, delta: number) => {
-    setMatches((prev) =>
-      prev.map((m) =>
+    setMatches((prev) => {
+      const updated = prev.map((m) =>
         m.id === matchId ? { ...m, shuttlecocks: Math.max(0, m.shuttlecocks + delta) } : m
-      )
-    );
+      );
+      const target = updated.find((m) => m.id === matchId);
+      if (target) {
+        matchesService
+          .updateKok(matchId, target.shuttlecocks)
+          .catch(reportError("Gagal memperbarui jumlah kok"));
+      }
+      return updated;
+    });
   };
 
   const deleteMatch = (matchId: number) => {
     showConfirm("Yakin ingin menghapus pertandingan ini?", () => {
       setMatches((prev) => prev.filter((m) => m.id !== matchId));
+      matchesService.deleteMatch(matchId).catch(reportError("Gagal menghapus pertandingan"));
     });
   };
 
   const updateScore = (matchId: number, team: "scoreA" | "scoreB", score: string) => {
-    setMatches((prev) =>
-      prev.map((m) => (m.id === matchId ? { ...m, [team]: Number(score) } : m))
-    );
+    const value = Number(score);
+    setMatches((prev) => prev.map((m) => (m.id === matchId ? { ...m, [team]: value } : m)));
+    matchesService
+      .updateScore(matchId, team === "scoreA" ? "score_a" : "score_b", value)
+      .catch(reportError("Gagal memperbarui skor"));
   };
 
   const finishMatch = (matchId: number) => {
@@ -359,10 +495,12 @@ export function MabarProvider({ children }: { children: ReactNode }) {
     setMatches((prev) =>
       prev.map((m) => (m.id === matchId ? { ...m, status: "finished" } : m))
     );
+    matchesService.finishMatch(matchId).catch(reportError("Gagal menyelesaikan pertandingan"));
   };
 
   // --- ACTIONS: AUTO-PAIRING & ANTREAN ---
   const generateMatches = (count: number) => {
+    if (sessionId === null) return;
     const presentPlayers = players.filter((p) => p.present);
     if (presentPlayers.length < 4) {
       showAlert("Pemain hadir kurang dari 4 orang!");
@@ -406,13 +544,14 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       );
     }
 
-    setQueue([
-      ...queue,
-      ...results.map((r, i) => ({ id: Date.now() + i, ...r })),
-    ]);
+    matchesService
+      .insertQueuedMatches(sessionId, results)
+      .then((created) => setQueue((prev) => [...prev, ...created]))
+      .catch(reportError("Gagal membuat antrean otomatis"));
   };
 
   const startQueuedMatch = (queueId: number, court?: number) => {
+    if (sessionId === null) return;
     const queued = queue.find((q) => q.id === queueId);
     if (!queued) return;
 
@@ -441,21 +580,21 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const newMatch: Match = {
-      id: Date.now(),
-      players: ids,
-      shuttlecocks: 1,
-      scoreA: 0,
-      scoreB: 0,
-      status: "active",
-      court: availableCourt,
-    };
-    setMatches((prev) => [newMatch, ...prev]);
     setQueue((prev) => prev.filter((q) => q.id !== queueId));
+    (async () => {
+      try {
+        const newMatch = await matchesService.createMatch(sessionId, ids, availableCourt!);
+        setMatches((prev) => [newMatch, ...prev]);
+        await matchesService.cancelQueuedMatch(queueId);
+      } catch (err) {
+        reportError("Gagal memulai pertandingan dari antrean")(err);
+      }
+    })();
   };
 
   const cancelQueuedMatch = (queueId: number) => {
     setQueue((prev) => prev.filter((q) => q.id !== queueId));
+    matchesService.cancelQueuedMatch(queueId).catch(reportError("Gagal membatalkan antrean"));
   };
 
   const updateQueuedPlayer = (
@@ -473,10 +612,17 @@ export function MabarProvider({ children }: { children: ReactNode }) {
         return { ...q, [team]: updatedTeam };
       })
     );
+    matchesService
+      .updateQueuedPlayer(queueId, team === "teamA" ? "A" : "B", index, playerId)
+      .catch(reportError("Gagal memperbarui antrean"));
   };
 
   const setPlayerAdjustment = (playerId: number, amount: number) => {
     setPlayerAdjustments((prev) => ({ ...prev, [playerId]: amount }));
+    if (sessionId === null) return;
+    playersService
+      .setAdjustment(sessionId, playerId, amount)
+      .catch(reportError("Gagal menyimpan penyesuaian harga"));
   };
 
   const setPlayerPaid = (playerId: number, paid: boolean) => {
@@ -484,6 +630,10 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       ...prev,
       [playerId]: { paid, method: prev[playerId]?.method ?? "cash" },
     }));
+    if (sessionId === null) return;
+    playersService
+      .setPayment(sessionId, playerId, { paid })
+      .catch(reportError("Gagal menyimpan status pembayaran"));
   };
 
   const setPlayerPaymentMethod = (playerId: number, method: PaymentMethod) => {
@@ -491,6 +641,10 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       ...prev,
       [playerId]: { paid: true, method },
     }));
+    if (sessionId === null) return;
+    playersService
+      .setPayment(sessionId, playerId, { paid: true, payment_method: method })
+      .catch(reportError("Gagal menyimpan metode pembayaran"));
   };
 
   // --- STATS & CALCULATIONS ---
@@ -554,6 +708,25 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   const totalPengeluaran =
     totalPengeluaranKokSlop + totalPengeluaranKokSatuan + expLapangan + expLain;
   const saldoAkhir = totalBiayaTerkumpul - totalPengeluaran;
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-center">
+        <div>
+          <p className="font-bold text-red-600 mb-1">Gagal memuat data dari Supabase</p>
+          <p className="text-sm text-gray-500">{loadError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Memuat data mabar...</p>
+      </div>
+    );
+  }
 
   const value: MabarContextValue = {
     players,

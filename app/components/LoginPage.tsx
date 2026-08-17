@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Lock, LogIn } from "lucide-react";
+import { signIn } from "../lib/auth";
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
@@ -9,15 +10,21 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLogin = (e: FormEvent) => {
+  const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
-    // Username dan password statis
-    if (username === "admin" && password === "mabar123") {
-      setLoginError("");
+    setIsSubmitting(true);
+    setLoginError("");
+    try {
+      await signIn(username, password);
       onLoginSuccess();
-    } else {
+    } catch {
+      // Generic message on purpose — don't reveal whether the username
+      // exists or the password was wrong.
       setLoginError("Username atau password salah!");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -66,9 +73,10 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
             <button
               type="submit"
-              className="w-full bg-yellow-400 text-black font-black py-3 rounded-xl mt-4 hover:bg-yellow-500 transition-colors flex items-center justify-center gap-2 shadow-md"
+              disabled={isSubmitting}
+              className="w-full bg-yellow-400 text-black font-black py-3 rounded-xl mt-4 hover:bg-yellow-500 transition-colors flex items-center justify-center gap-2 shadow-md disabled:opacity-60"
             >
-              <LogIn size={20} /> Sign In
+              <LogIn size={20} /> {isSubmitting ? "Signing in..." : "Sign In"}
             </button>
           </form>
         </div>
