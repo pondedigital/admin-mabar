@@ -50,3 +50,15 @@ export async function updateSessionSettings(
   const { error } = await supabase.from("mabar_sessions").update(patch).eq("id", sessionId);
   if (error) throw error;
 }
+
+/**
+ * Mengakhiri sesi mabar — mengunci sesi ini (rekap & keuangan jadi read-only)
+ * sehingga sesi baru bisa dimulai lewat getOrCreateOpenSession.
+ */
+export async function closeSession(sessionId: number): Promise<void> {
+  const { error } = await supabase
+    .from("mabar_sessions")
+    .update({ status: "closed" })
+    .eq("id", sessionId);
+  if (error) throw error;
+}

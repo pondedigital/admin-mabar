@@ -56,6 +56,7 @@ export interface ModalState {
   type: ModalType;
   message: string;
   onConfirm: (() => void) | null;
+  confirmLabel?: string;
 }
 
 export type TabId = "pemain" | "pertandingan" | "rekap" | "klasemen" | "tagihan" | "keuangan";

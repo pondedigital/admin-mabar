@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MabarProvider } from "../context/MabarContext";
+import { MabarProvider, useMabar } from "../context/MabarContext";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { onAuthStateChange, signOut } from "../lib/auth";
 import { supabase } from "../lib/supabase/client";
@@ -48,22 +48,46 @@ export function MabarApp() {
 
   return (
     <MabarProvider>
-      <div className="max-w-md mx-auto bg-gray-50 min-h-screen pb-24 shadow-xl border-x border-gray-100 font-sans relative print:max-w-none print:bg-white print:shadow-none print:border-none print:pb-0">
-        <AppHeader onLogout={handleLogout} />
-
-        <main className="print:p-0">
-          {activeTab === "pemain" && <PemainTab />}
-          {activeTab === "pertandingan" && <PertandinganTab />}
-          {activeTab === "rekap" && <RekapTab />}
-          {activeTab === "klasemen" && <KlasemenTab />}
-          {activeTab === "tagihan" && <TagihanTab />}
-          {activeTab === "keuangan" && <KeuanganTab />}
-        </main>
-
-        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
-
-        <AppModal />
-      </div>
+      <AuthenticatedApp
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={handleLogout}
+      />
     </MabarProvider>
+  );
+}
+
+function AuthenticatedApp({
+  activeTab,
+  setActiveTab,
+  onLogout,
+}: {
+  activeTab: TabId;
+  setActiveTab: (tab: TabId) => void;
+  onLogout: () => void;
+}) {
+  const { isSessionLocked } = useMabar();
+
+  return (
+    <div className="max-w-md mx-auto bg-gray-50 min-h-screen pb-24 shadow-xl border-x border-gray-100 font-sans relative print:max-w-none print:bg-white print:shadow-none print:border-none print:pb-0">
+      <AppHeader onLogout={onLogout} />
+
+      <main
+        className={`print:p-0 ${
+          isSessionLocked ? "pointer-events-none select-none" : ""
+        }`}
+      >
+        {activeTab === "pemain" && <PemainTab />}
+        {activeTab === "pertandingan" && <PertandinganTab />}
+        {activeTab === "rekap" && <RekapTab />}
+        {activeTab === "klasemen" && <KlasemenTab />}
+        {activeTab === "tagihan" && <TagihanTab />}
+        {activeTab === "keuangan" && <KeuanganTab />}
+      </main>
+
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+
+      <AppModal />
+    </div>
   );
 }

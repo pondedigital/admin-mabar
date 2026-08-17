@@ -32,7 +32,7 @@ export function AppModal() {
                 : "bg-yellow-400 hover:bg-yellow-500 text-black"
             }`}
           >
-            {modal.type === "confirm" ? "Hapus" : "Mengerti"}
+            {modal.type === "confirm" ? modal.confirmLabel ?? "Hapus" : "Mengerti"}
           </button>
         </div>
       </div>
