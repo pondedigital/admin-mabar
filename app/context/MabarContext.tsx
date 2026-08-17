@@ -489,7 +489,7 @@ export function MabarProvider({ children }: { children: ReactNode }) {
   const setPlayerPaymentMethod = (playerId: number, method: PaymentMethod) => {
     setPlayerPayments((prev) => ({
       ...prev,
-      [playerId]: { paid: prev[playerId]?.paid ?? false, method },
+      [playerId]: { paid: true, method },
     }));
   };
 

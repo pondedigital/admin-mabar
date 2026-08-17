@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, Settings2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import { useMabar } from "../../context/MabarContext";
 import { formatDate, formatRp } from "../../lib/format";
 import type { PaymentMethod, PlayerStat } from "../../types/mabar";
@@ -73,33 +73,20 @@ export function ResumeReceipt({ onAdjustPlayer }: ResumeReceiptProps) {
               className={`py-3 ${index !== arr.length - 1 ? "border-b border-gray-100" : ""}`}
             >
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPlayerPaid(player.id, !player.paid)}
-                    className="text-gray-300 hover:text-emerald-500 print:hidden transition-colors shrink-0"
-                    title={player.paid ? "Tandai belum bayar" : "Tandai sudah bayar"}
-                  >
-                    {player.paid ? (
-                      <CheckCircle2 size={20} className="text-emerald-500" />
-                    ) : (
-                      <Circle size={20} />
+                <div>
+                  <div className="font-bold text-gray-800 text-base flex items-center gap-1.5">
+                    {player.name}
+                    {player.paid && (
+                      <span className="hidden print:inline text-emerald-600">✓</span>
                     )}
-                  </button>
-                  <div>
-                    <div className="font-bold text-gray-800 text-base flex items-center gap-1.5">
-                      {player.name}
-                      {player.paid && (
-                        <span className="hidden print:inline text-emerald-600">✓</span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-gray-500 font-medium mt-0.5">
-                      Main: {player.matchesPlayed} kali
-                      {player.adjustment !== 0 && (
-                        <span className="ml-1 text-blue-600 font-bold">
-                          (Adj: {formatRp(player.adjustment)})
-                        </span>
-                      )}
-                    </div>
+                  </div>
+                  <div className="text-[10px] text-gray-500 font-medium mt-0.5">
+                    Main: {player.matchesPlayed} kali
+                    {player.adjustment !== 0 && (
+                      <span className="ml-1 text-blue-600 font-bold">
+                        (Adj: {formatRp(player.adjustment)})
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="text-right flex items-center gap-3">
@@ -116,24 +103,37 @@ export function ResumeReceipt({ onAdjustPlayer }: ResumeReceiptProps) {
                 </div>
               </div>
 
+              <div className="flex items-center gap-1.5 mt-2 print:hidden">
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mr-1">
+                  Bayar:
+                </span>
+                <button
+                  onClick={() => setPlayerPaid(player.id, false)}
+                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors ${
+                    !player.paid
+                      ? "bg-gray-700 border-gray-700 text-white"
+                      : "bg-white border-gray-200 text-gray-500 hover:border-gray-400"
+                  }`}
+                >
+                  Belum Bayar
+                </button>
+                {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map((method) => (
+                  <button
+                    key={method}
+                    onClick={() => setPlayerPaymentMethod(player.id, method)}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors ${
+                      player.paid && player.paymentMethod === method
+                        ? "bg-emerald-500 border-emerald-500 text-white"
+                        : "bg-white border-gray-200 text-gray-500 hover:border-emerald-300"
+                    }`}
+                  >
+                    {PAYMENT_METHOD_LABELS[method]}
+                  </button>
+                ))}
+              </div>
               {player.paid && (
-                <div className="flex items-center gap-1.5 mt-2 ml-7">
-                  <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mr-1">
-                    Bayar:
-                  </span>
-                  {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map((method) => (
-                    <button
-                      key={method}
-                      onClick={() => setPlayerPaymentMethod(player.id, method)}
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors print:border-none ${
-                        player.paymentMethod === method
-                          ? "bg-emerald-500 border-emerald-500 text-white"
-                          : "bg-white border-gray-200 text-gray-500 hover:border-emerald-300 print:hidden"
-                      }`}
-                    >
-                      {PAYMENT_METHOD_LABELS[method]}
-                    </button>
-                  ))}
+                <div className="hidden print:block text-[10px] text-emerald-600 font-bold mt-1">
+                  Lunas ({PAYMENT_METHOD_LABELS[player.paymentMethod]})
                 </div>
               )}
             </div>
