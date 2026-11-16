@@ -222,7 +222,7 @@ function LoginForm({
           setFormError(null);
         }}
         options={[
-          { value: "pengurus", label: "Pengurus PB", icon: Users },
+          { value: "pengurus", label: "Host", icon: Users },
           { value: "admin", label: "Admin", icon: ShieldCheck },
         ]}
       />

@@ -43,7 +43,7 @@ To add or remove other platform admins later, run the same insert (or a
    **Salin** button, so you can send the credentials to the user. The password
    is shown only while the panel stays open — copy it now.
 
-The new user signs in on the normal **Pengurus PB** tab with that Gmail +
+The new user signs in on the normal **Host** tab with that Gmail +
 password, and goes straight to their PB (no "create PB" step, because they are
 already linked).
 
@@ -55,5 +55,5 @@ already linked).
 - Passwords are stored only as bcrypt hashes, exactly like dashboard-created
   users; the plain password is never saved anywhere server-side.
 - Test it once end to end after setup: create a user, then sign in as that user
-  on the Pengurus tab. If anything fails, you can still create users the old way
+  on the Host tab. If anything fails, you can still create users the old way
   (Supabase dashboard → Authentication → Users → Add user, with Auto Confirm).
