@@ -1,8 +1,13 @@
 import { useState } from "react";
-import { Check, MapPin, Pencil, Play, X } from "lucide-react";
+import { Check, Pencil, Play, X } from "lucide-react";
 import { useMabar } from "../../context/MabarContext";
 import { LEVELS } from "../../lib/pairing";
+import { busyPlayerIds } from "../../lib/match";
+import { cn } from "../../lib/utils";
 import type { QueuedMatch } from "../../types/mabar";
+import { buttonVariants, inputClass } from "../ui/button";
+import { cardClass } from "../ui/Section";
+import { TeamNames } from "./TeamNames";
 
 interface QueuedMatchCardProps {
   queuedMatch: QueuedMatch;
@@ -10,24 +15,24 @@ interface QueuedMatchCardProps {
 }
 
 export function QueuedMatchCard({ queuedMatch, position }: QueuedMatchCardProps) {
-  const {
-    players,
-    matches,
-    startQueuedMatch,
-    cancelQueuedMatch,
-    updateQueuedPlayer,
-    numCourts,
-  } = useMabar();
+  const { players, matches, startQueuedMatch, cancelQueuedMatch, updateQueuedPlayer, numCourts } =
+    useMabar();
   const [isEditing, setIsEditing] = useState(false);
   // "auto" = main di lapangan kosong mana pun; angka = lapangan pilihan
   const [selectedCourt, setSelectedCourt] = useState<"auto" | number>("auto");
 
   const allIds = [...queuedMatch.teamA, ...queuedMatch.teamB];
-  const activeMatches = matches.filter((m) => m.status === "active");
-  const isBusy = allIds.some((id) => activeMatches.some((m) => m.players.includes(id)));
+  const busy = busyPlayerIds(matches);
+  const blockingNames = allIds
+    .filter((id) => busy.has(id))
+    .map((id) => players.find((p) => p.id === id)?.name)
+    .filter((name): name is string => Boolean(name));
+  const isBusy = allIds.some((id) => busy.has(id));
 
   // Lapangan kosong bernomor terkecil — sama dengan pilihan startQueuedMatch
-  const usedCourts = new Set(activeMatches.map((m) => m.court));
+  const usedCourts = new Set(
+    matches.filter((m) => m.status === "active").map((m) => m.court)
+  );
   let freeCourt: number | undefined;
   for (let c = 1; c <= numCourts; c++) {
     if (!usedCourts.has(c)) {
@@ -35,56 +40,20 @@ export function QueuedMatchCard({ queuedMatch, position }: QueuedMatchCardProps)
       break;
     }
   }
+  const targetCourt = selectedCourt === "auto" ? freeCourt : selectedCourt;
+  const isTargetUsed = targetCourt !== undefined && usedCourts.has(targetCourt);
 
-  const hasFreeCourt = freeCourt !== undefined;
-  const isSelectedCourtUsed = selectedCourt !== "auto" && usedCourts.has(selectedCourt);
-  const disabledReasons: string[] = [];
-
+  let blockedReason: string | null = null;
   if (isBusy) {
-    const blockingPlayers = allIds.filter((id) => activeMatches.some((m) => m.players.includes(id)));
-    const names = blockingPlayers
-      .map((id) => players.find((player) => player.id === id)?.name)
-      .filter((name): name is string => Boolean(name));
-
-    if (names.length > 0) {
-      disabledReasons.push(`Pemain ${names.join(", ")} masih bermain`);
-    } else {
-      disabledReasons.push("Ada pemain di antrean ini yang masih bermain");
-    }
+    blockedReason =
+      blockingNames.length > 0
+        ? `Menunggu ${blockingNames.join(", ")} selesai main.`
+        : "Ada pemain yang masih bermain.";
+  } else if (targetCourt === undefined) {
+    blockedReason = "Semua lapangan sedang dipakai.";
+  } else if (isTargetUsed) {
+    blockedReason = `Lapangan ${targetCourt} masih dipakai.`;
   }
-
-  if (!hasFreeCourt && selectedCourt === "auto") {
-    disabledReasons.push("Tidak ada lapangan kosong saat ini");
-  }
-
-  if (selectedCourt !== "auto" && isSelectedCourtUsed) {
-    disabledReasons.push(`Lapangan ${selectedCourt} masih dipakai`);
-  }
-
-  const isDisabled = disabledReasons.length > 0;
-
-  const buttonLabel = isBusy
-    ? "Menunggu Pemain Selesai"
-    : !hasFreeCourt && selectedCourt === "auto"
-      ? "Lapangan Penuh"
-      : isSelectedCourtUsed
-        ? `Lapangan ${selectedCourt} Masih Dipakai`
-        : selectedCourt === "auto"
-          ? `Mulai Main di Lapangan ${freeCourt}`
-          : `Mulai Main di Lapangan ${selectedCourt}`;
-
-  const renderPlayer = (id: number) => {
-    const player = players.find((p) => p.id === id);
-    if (!player) return null;
-    return (
-      <span key={id} className="text-sm font-semibold text-gray-800">
-        {player.name}{" "}
-        <span className="text-[10px] font-bold text-gray-400">
-          ({LEVELS[player.level].short})
-        </span>
-      </span>
-    );
-  };
 
   const renderSlot = (team: "teamA" | "teamB", index: number) => {
     const currentId = queuedMatch[team][index];
@@ -95,9 +64,10 @@ export function QueuedMatchCard({ queuedMatch, position }: QueuedMatchCardProps)
     return (
       <select
         key={`${team}-${index}`}
+        aria-label={`Tim ${team === "teamA" ? "A" : "B"}, pemain ${index + 1}`}
         value={currentId}
         onChange={(e) => updateQueuedPlayer(queuedMatch.id, team, index, Number(e.target.value))}
-        className="w-full text-sm font-semibold text-gray-800 border border-gray-300 rounded-lg px-2 py-1.5 mb-1 bg-white focus:outline-none focus:ring-2 focus:ring-yellow-400"
+        className={cn(inputClass, "h-10 text-sm")}
       >
         {options.map((p) => (
           <option key={p.id} value={p.id}>
@@ -109,102 +79,86 @@ export function QueuedMatchCard({ queuedMatch, position }: QueuedMatchCardProps)
   };
 
   return (
-    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-      <div className="flex justify-between items-center mb-3 border-b pb-2">
-        <span className="text-xs font-bold bg-blue-100 px-2 py-1 rounded text-blue-700">
-          Antrean #{position}
+    <article className={cn(cardClass, "p-3")} aria-label={`Antrean ${position}`}>
+      <div className="flex items-start gap-3">
+        <span
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold tabular"
+          aria-hidden
+        >
+          {position}
         </span>
-        <div className="flex items-center gap-1">
+        {isEditing ? (
+          <div className="grid min-w-0 flex-1 gap-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">Tim A</p>
+            {queuedMatch.teamA.map((_, idx) => renderSlot("teamA", idx))}
+            <p className="pt-1 text-xs font-semibold text-muted-foreground">Tim B</p>
+            {queuedMatch.teamB.map((_, idx) => renderSlot("teamB", idx))}
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1 space-y-0.5 pt-0.5 text-sm font-medium">
+            <TeamNames ids={queuedMatch.teamA} players={players} showLevel className="block" />
+            <span className="block text-xs text-muted-foreground">lawan</span>
+            <TeamNames ids={queuedMatch.teamB} players={players} showLevel className="block" />
+          </div>
+        )}
+        <div className="-mr-1 -mt-1 flex shrink-0">
           <button
+            type="button"
             onClick={() => setIsEditing((prev) => !prev)}
-            className={`p-1.5 rounded-lg transition-colors ${
-              isEditing
-                ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
-                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-            }`}
-            title={isEditing ? "Selesai edit" : "Edit pemain"}
+            aria-label={isEditing ? "Selesai edit pemain" : "Edit pemain"}
+            aria-pressed={isEditing}
+            className={buttonVariants({
+              variant: "ghost",
+              size: "icon",
+              className: cn("size-9", isEditing && "bg-foreground text-white hover:bg-foreground/85 hover:text-white"),
+            })}
           >
-            {isEditing ? <Check size={16} strokeWidth={3} /> : <Pencil size={16} />}
+            {isEditing ? <Check size={16} strokeWidth={2.5} aria-hidden /> : <Pencil size={16} aria-hidden />}
           </button>
           <button
+            type="button"
             onClick={() => cancelQueuedMatch(queuedMatch.id)}
-            className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-            title="Batalkan antrean"
+            aria-label={`Batalkan antrean ${position}`}
+            className={buttonVariants({ variant: "ghost", size: "icon", className: "size-9" })}
           >
-            <X size={16} strokeWidth={3} />
+            <X size={18} aria-hidden />
           </button>
         </div>
       </div>
 
-      {isEditing ? (
-        <div className="flex justify-between items-center mb-3 gap-2">
-          <div className="flex flex-col flex-1">
-            {queuedMatch.teamA.map((_, idx) => renderSlot("teamA", idx))}
-          </div>
-          <div className="px-1 font-black text-gray-300 italic">VS</div>
-          <div className="flex flex-col flex-1">
-            {queuedMatch.teamB.map((_, idx) => renderSlot("teamB", idx))}
-          </div>
-        </div>
-      ) : (
-        <div className="flex justify-between items-center mb-3">
-          <div className="flex flex-col items-center flex-1">
-            {queuedMatch.teamA.map(renderPlayer)}
-          </div>
-          <div className="px-2 font-black text-gray-300 italic">VS</div>
-          <div className="flex flex-col items-center flex-1">
-            {queuedMatch.teamB.map(renderPlayer)}
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 mb-2">
-        <MapPin size={14} className="text-gray-400 shrink-0" />
+      <div className="mt-3 flex gap-2">
+        <label className="sr-only" htmlFor={`court-${queuedMatch.id}`}>
+          Pilih lapangan
+        </label>
         <select
+          id={`court-${queuedMatch.id}`}
           value={selectedCourt}
           onChange={(e) =>
             setSelectedCourt(e.target.value === "auto" ? "auto" : Number(e.target.value))
           }
-          className="flex-1 text-xs font-semibold text-gray-700 border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-yellow-400"
+          className={cn(inputClass, "w-auto min-w-0 flex-1 text-sm")}
         >
-          <option value="auto">Otomatis (lapangan kosong mana pun)</option>
+          <option value="auto">Lapangan kosong</option>
           {Array.from({ length: numCourts }, (_, i) => i + 1).map((c) => (
             <option key={c} value={c}>
               Lapangan {c}
-              {usedCourts.has(c) ? " — masih dipakai" : ""}
+              {usedCourts.has(c) ? " (dipakai)" : ""}
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={() =>
+            startQueuedMatch(queuedMatch.id, selectedCourt === "auto" ? undefined : selectedCourt)
+          }
+          disabled={blockedReason !== null}
+          className={buttonVariants({ variant: "primary", className: "shrink-0" })}
+        >
+          <Play size={16} aria-hidden />
+          {targetCourt !== undefined && !isTargetUsed ? `Mulai di Lap ${targetCourt}` : "Mulai"}
+        </button>
       </div>
-
-      <button
-        onClick={() =>
-          startQueuedMatch(
-            queuedMatch.id,
-            selectedCourt === "auto" ? undefined : selectedCourt
-          )
-        }
-        disabled={isDisabled}
-        className={`w-full py-2 font-bold rounded-lg transition flex justify-center items-center gap-2 ${
-          isDisabled
-            ? "bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
-            : "bg-yellow-400 text-black hover:bg-yellow-500"
-        }`}
-      >
-        <Play size={16} />
-        {buttonLabel}
-      </button>
-
-      {isDisabled && (
-        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700">
-          <div className="mb-1 font-semibold">Alasan tombol dinonaktifkan:</div>
-          <ul className="list-disc pl-4 space-y-0.5">
-            {disabledReasons.map((reason, index) => (
-              <li key={`${reason}-${index}`}>{reason}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+      {blockedReason && <p className="mt-2 text-xs text-warning">{blockedReason}</p>}
+    </article>
   );
 }

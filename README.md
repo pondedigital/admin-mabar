@@ -6,44 +6,42 @@ Built with React Router v8 (SSR), React 19, TypeScript, and Tailwind CSS v4.
 
 ## Features
 
-The app is organized into six tabs behind a simple admin login:
+The app has four tabs, plus a session settings sheet and a menu in the header.
 
-### 🔐 Login
+### 🔐 Sign-in (Gmail + password)
 
-- Static admin credential gate before the app can be used.
+- Accounts are created by the PONDE admin in the Supabase dashboard; there is no public sign-up.
+- Only Gmail addresses are accepted.
+- Old username accounts move to Gmail once via **Pindahkan ke Gmail** on the login screen (same account, PBs and history kept).
+- A new account with no PB creates its own PB on first sign-in and becomes its admin.
+- Setup and operations: [docs/auth-gmail.md](docs/auth-gmail.md).
+
+### Header
+
+- PB name, date and GOR. Tap it (or the settings icon) to open **Pengaturan sesi**: PB switch, GOR name, session date, number of courts, payment mode, shuttlecock price, base fee / all-in fee. Changes save automatically.
+- Menu: **Akhiri mabar** (locks the session) and **Keluar**. A closed session shows **Mulai mabar baru**; its data stays viewable and exportable.
 
 ### 👥 Pemain (Players)
 
-- Add / delete players and toggle their attendance (_hadir / tidak hadir_).
-- Assign a skill level to each player: **Pemula (C)**, **Menengah (B)**, or **Mahir (A)**.
+- Add players (with roster suggestions) and set their level: **Pemula (C)**, **Menengah (B)**, or **Mahir (A)**.
+- Tap a name to toggle attendance (_hadir / tidak hadir_); change level or delete per row.
 - Players who have already played cannot be deleted — mark them as absent instead.
 
-### 🏸 Pertandingan (Matches)
+### 🏸 Main (Matches)
 
-- Manually pick up to 4 players and start a match on the next free court.
-- **Auto-pairing**: generate one or several queued 2v2 matches that are balanced by level and play count (see [criteria](#auto-pairing-criteria) below).
-- Queue management: start a queued match on a specific court, swap individual players in a queued team, or cancel the queue entry.
-- Per-match shuttlecock (_kok_) counter and score input; a match can only be finished once a score has been entered.
+- **Lapangan**: one card per court with score inputs, shuttlecock (_kok_) counter, delete, and **Selesai & simpan skor** (needs a score). An empty court offers a one-tap start for the first ready queued match.
+- **Antrean**: start a queued match on any free or chosen court, swap individual players, or cancel it.
+- **Buat pertandingan**: auto-pair 1–4 balanced queued matches (see [criteria](#auto-pairing-criteria)), or pick 2–4 players manually and start now or add to the queue.
 
-### 📋 Rekap (Match History)
+### 🏆 Hasil (Results)
 
-- List of finished matches with teams, scores, and shuttlecocks used.
+- **Riwayat**: finished matches, shuttlecocks used, and games played per player.
+- **Klasemen**: live leaderboard: played, wins, losses, point difference (see [criteria](#leaderboard-ranking-criteria)).
 
-### 🏆 Klasemen (Standings)
+### 💰 Kas (Money)
 
-- Live leaderboard computed from finished matches: matches played, wins, losses, and point difference (see [criteria](#leaderboard-ranking-criteria) below).
-
-### 🧾 Tagihan (Billing)
-
-- Per-player bill (_resume receipt_) based on the selected payment mode, with manual price adjustment per player.
-- Session settings: GOR (venue) name, community/PB name, session date, number of courts, shuttlecock price, base fee, and payment mode.
-- Export the receipt as a **JPG image** (html2canvas) or **print to PDF**.
-
-### 💰 Keuangan (Finance)
-
-- Expense form: shuttlecocks by tube (_slop_) or per piece, court rental, and other expenses.
-- Finance report comparing money collected from players vs. total expenses, ending with the final balance (_saldo akhir_).
-- Exportable as JPG.
+- **Tagihan**: per-player bill with paid status (Cash / QRIS / Transfer) and manual price adjustment; export as **JPG** or **print to PDF**.
+- **Keuangan**: expenses (shuttlecocks by tube / piece, court rental, other) and the finance report ending with the final balance (_saldo akhir_); export as JPG.
 
 ## Feature Criteria & Rules
 
@@ -114,26 +112,27 @@ Only **finished** matches count, and only players with at least 1 game appear. R
 ```
 app/
 ├── components/
-│   ├── LoginPage.tsx          # Admin login gate
-│   ├── MabarApp.tsx           # Root app shell + tab switching
-│   ├── layout/                # Header & bottom navigation
+│   ├── MabarApp.tsx           # Auth gate, 4-tab shell
+│   ├── auth/                  # Login + legacy claim, create-PB onboarding
+│   ├── layout/                # Header, bottom navigation, full-screen states
+│   ├── settings/              # Session settings sheet
 │   ├── pemain/                # Players tab
-│   ├── pertandingan/          # Matches tab (active + queued match cards)
-│   ├── rekap/                 # Finished match history
-│   ├── klasemen/              # Leaderboard
-│   ├── tagihan/               # Billing receipt & session settings
-│   ├── keuangan/              # Expenses & finance report
-│   └── modals/                # Alert/confirm, price adjustment, image preview
-├── context/MabarContext.tsx   # All app state, actions & derived calculations
+│   ├── pertandingan/          # Main tab (courts, queue, match creation)
+│   ├── hasil/                 # Hasil tab (history, leaderboard)
+│   ├── kas/                   # Kas tab (bill receipt, expenses, finance report)
+│   ├── modals/                # Alert/confirm, price adjustment, image preview
+│   └── ui/                    # Shared button, field, segmented control, overlay
+├── context/MabarContext.tsx   # App state, actions & derived calculations
 ├── lib/
+│   ├── auth.ts, email.ts      # Gmail sign-in and legacy account claim
+│   ├── services/              # Supabase data access
 │   ├── pairing.ts             # Balanced auto-pairing algorithm
-│   ├── match.ts               # Team-splitting helper
+│   ├── match.ts               # Team-splitting & queue helpers
 │   └── format.ts              # Formatting helpers
-├── hooks/useDownloadJpg.ts    # html2canvas JPG export hook
-└── types/mabar.ts             # Shared domain types
+├── hooks/                     # JPG export, persisted UI state
+└── types/                     # Domain and DB types
+supabase/migrations/           # SQL to run in the Supabase SQL editor
 ```
-
-> **Note:** All state lives in React context (in-memory) — data resets on page refresh. One session of the app corresponds to one mabar session.
 
 ## Getting Started
 

@@ -59,4 +59,10 @@ export interface ModalState {
   confirmLabel?: string;
 }
 
-export type TabId = "pemain" | "pertandingan" | "rekap" | "klasemen" | "tagihan" | "keuangan";
+/**
+ * Bottom navigation (4 tabs). Each merged tab keeps its old screens as a sub-view:
+ * hasil = rekap + klasemen, kas = tagihan + keuangan.
+ */
+export type TabId = "pemain" | "main" | "hasil" | "kas";
+export type HasilView = "riwayat" | "klasemen";
+export type KasView = "tagihan" | "keuangan";

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/plus-jakarta-sans";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -9,38 +9,15 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-@theme {
-  --font-sans: "Montserrat", -apple-system, BlinkMacSystemFont,
-    "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, ui-sans-serif,
-    system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
-    "Segoe UI Symbol", "Noto Color Emoji";
-}
-
-/* Montserrat — variable font lokal, satu file mencakup weight 100-900. */
-@font-face {
-  font-family: "Montserrat";
-  src: url("/font/Montserrat/Montserrat-VariableFont_wght.ttf") format("truetype-variations");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Montserrat";
-  src: url("/font/Montserrat/Montserrat-Italic-VariableFont_wght.ttf") format("truetype-variations");
-  font-weight: 100 900;
-  font-style: italic;
-  font-display: swap;
-}
-
 html,
 body {
-  @apply bg-white text-gray-900;
   color-scheme: light;
 }
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: 'Geist Variable', sans-serif;
+  --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -72,6 +49,14 @@ body {
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger-soft: var(--danger-soft);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -79,33 +64,61 @@ body {
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Soft, warm-tinted elevation — depth instead of hard outlines. */
+  --shadow-card: 0 1px 2px -1px rgb(34 30 12 / 0.08), 0 2px 8px -2px rgb(34 30 12 / 0.06);
+  --shadow-pop: 0 6px 16px -6px rgb(34 30 12 / 0.18), 0 2px 6px -2px rgb(34 30 12 / 0.08);
+  --shadow-brand: 0 6px 20px -6px rgb(234 179 8 / 0.5);
+
+  --color-ink-2: var(--ink-2);
+  --color-brand-2: var(--brand-2);
+  --color-accent2: var(--accent2);
+  --color-accent2-soft: var(--accent2-soft);
+
+  --ease-spring: var(--ease-spring);
+  --ease-out: var(--ease-out);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* PONDE brand: warm ink + signal yellow, with a teal spark to keep it lively. */
+  --background: #f6f4ec;
+  --foreground: #16140f;
+  --card: #ffffff;
+  --card-foreground: #16140f;
+  --popover: #ffffff;
+  --popover-foreground: #16140f;
+  --primary: #16140f;
+  --primary-foreground: #ffffff;
+  --secondary: #eceadf;
+  --secondary-foreground: #16140f;
+  --muted: #edeadf;
+  --muted-foreground: #6b6557;
+  --accent: #edeadf;
+  --accent-foreground: #16140f;
+  --destructive: #c01f14;
+  --border: #e4e0d2;
+  --input: #cbc6b5;
+  --ring: #16140f;
+  /* Ink gets a second stop so black surfaces read as a warm charcoal gradient. */
+  --ink-2: #2c2820;
+  --brand: #ffcf33;
+  --brand-strong: #eab308;
+  --brand-2: #ffb020;
+  --brand-soft: #fff3cc;
+  /* Teal accent — used sparingly for "live"/active, not decoration. */
+  --accent2: #0f7a6e;
+  --accent2-soft: #d9f1ec;
+  --success: #117a3b;
+  --success-soft: #e4f6ea;
+  --warning: #9a5b00;
+  --warning-soft: #fdf1d6;
+  --danger-soft: #fdeae7;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  --radius: 0.75rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -114,6 +127,8 @@ body {
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .dark {
@@ -154,10 +169,115 @@ body {
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    /* Paint the whole html surface so the area a mobile browser reveals when
+       its toolbar collapses (taller than 100dvh) stays on-brand, not white. */
+    background-color: var(--background);
+  }
+  body {
+    @apply bg-background text-foreground;
+    min-height: 100dvh;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    /* Faint warm wash so the paper surface reads soft, not flat grey. */
+    background-image: radial-gradient(
+      120% 80% at 50% -10%,
+      color-mix(in srgb, var(--brand) 14%, transparent),
+      transparent 60%
+    );
+    background-attachment: fixed;
+  }
+  button:not(:disabled),
+  [role="button"],
+  label[for],
+  select {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Tap highlight is handled by our own press states. */
+  button,
+  [role="button"],
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Scores and money line up when they change. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Warm charcoal gradient for ink surfaces (header, primary-dark buttons). */
+@utility surface-ink {
+  background-image: linear-gradient(160deg, var(--ink-2), var(--foreground));
+}
+/* Brand surface with a little vertical life + glow. */
+@utility surface-brand {
+  background-image: linear-gradient(160deg, var(--brand), var(--brand-2));
+}
+
+@layer utilities {
+  /* Press feedback shared by interactive surfaces. */
+  .press {
+    transition:
+      transform 0.12s var(--ease-out),
+      box-shadow 0.18s var(--ease-out),
+      background-color 0.15s var(--ease-out);
+  }
+  .press:active {
+    transform: scale(0.97);
+  }
+  /* A number that just changed (score, kok, bill): a tiny pop. */
+  .animate-pop {
+    animation: pop 0.22s var(--ease-spring);
+  }
+  /* Tab panels and newly added rows ease in. */
+  .animate-rise {
+    animation: rise 0.28s var(--ease-out);
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes rise {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .press:active {
+    transform: none;
   }
 }

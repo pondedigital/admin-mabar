@@ -1,61 +1,108 @@
-import { Calendar, Lock, LogIn } from "lucide-react";
+import { useState } from "react";
+import { Lock, LogOut, MoreVertical, SlidersHorizontal } from "lucide-react";
 import { useMabar } from "../../context/MabarContext";
 import { formatDate } from "../../lib/format";
+import { buttonVariants } from "../ui/button";
+import { Overlay } from "../ui/Overlay";
 
 interface AppHeaderProps {
   onLogout: () => void;
+  onOpenSettings: () => void;
 }
 
-export function AppHeader({ onLogout }: AppHeaderProps) {
-  const { pbName, matchDate, isSessionLocked, endSession, startNewSession } = useMabar();
+const iconButton =
+  "flex size-10 items-center justify-center rounded-full text-white/75 hover:bg-white/10 hover:text-white";
+
+export function AppHeader({ onLogout, onOpenSettings }: AppHeaderProps) {
+  const { pbName, gorName, matchDate, isSessionLocked, endSession, startNewSession } = useMabar();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const meta = [matchDate ? formatDate(matchDate) : null, gorName || null]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div className="bg-black text-yellow-400 p-3 sticky top-0 z-10 shadow-md flex flex-col items-center justify-center border-b-2 border-yellow-400 print:hidden relative">
-      <button
-        onClick={onLogout}
-        className="absolute right-3 top-3 bg-zinc-800 p-1.5 rounded-lg text-gray-400 hover:text-white transition-colors"
-        title="Logout"
-      >
-        <LogIn size={18} className="rotate-180" />
-      </button>
-      <div className="flex items-center gap-3">
-        <img
-          src="https://ui-avatars.com/api/?name=Ponde&background=000000&color=facc15&rounded=true&bold=true&size=128"
-          alt="Logo Ponde"
-          className="w-10 h-10 rounded-full border-2 border-yellow-400 shadow-sm object-cover bg-black"
-        />
-        <h1 className="text-xl font-black tracking-wide uppercase">{pbName || "NAMA PB"}</h1>
-      </div>
-
-      <div className="mt-3 w-full flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-yellow-200/80 flex items-center gap-1.5">
-          <Calendar size={12} />
-          {matchDate ? formatDate(matchDate) : "Tanggal Belum Diatur"}
+    <header className="surface-ink sticky top-0 z-20 text-white shadow-pop print:hidden">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span
+          aria-hidden
+          className="surface-brand flex size-9 shrink-0 items-center justify-center rounded-full text-base font-black text-foreground shadow-brand"
+        >
+          {(pbName || "P").replace(/^PB\s+/i, "").charAt(0).toUpperCase()}
         </span>
-
-        {!isSessionLocked && (
-          <button
-            onClick={endSession}
-            className="flex items-center gap-1.5 text-[11px] font-bold text-white bg-gradient-to-b from-red-500 to-red-700 px-3.5 py-1.5 rounded-full shadow-md shadow-red-950/40 ring-1 ring-red-400/30 hover:from-red-400 hover:to-red-600 active:scale-95 transition-all"
-          >
-            <Lock size={12} /> Akhiri Mabar
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="min-w-0 flex-1 text-left"
+          aria-label={`Pengaturan sesi ${pbName}`}
+        >
+          <h1 className="truncate text-base font-bold leading-tight">{pbName || "PB"}</h1>
+          <p className="truncate text-xs text-white/65">
+            {meta || "Atur tanggal & GOR"}
+          </p>
+        </button>
+        <button type="button" onClick={onOpenSettings} className={iconButton} aria-label="Pengaturan sesi">
+          <SlidersHorizontal size={20} aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={() => setMenuOpen(true)}
+          className={`${iconButton} -mr-2`}
+          aria-label="Menu lainnya"
+        >
+          <MoreVertical size={20} aria-hidden />
+        </button>
       </div>
 
       {isSessionLocked && (
-        <div className="mt-3 w-full flex flex-col items-center gap-2 bg-red-950/40 border border-red-500/40 rounded-lg px-3 py-2">
-          <p className="text-[11px] font-bold text-red-300 flex items-center gap-1.5">
-            <Lock size={12} /> SESI DITUTUP — DATA TERKUNCI
+        <div className="flex items-center gap-3 border-t border-white/10 bg-white/5 px-4 py-2.5">
+          <Lock size={16} className="shrink-0 text-brand" aria-hidden />
+          <p className="flex-1 text-xs text-white/80">
+            Sesi ditutup. Data hanya bisa dilihat.
           </p>
           <button
+            type="button"
             onClick={startNewSession}
-            className="w-full bg-yellow-400 text-black font-black text-xs py-2 rounded-lg hover:bg-yellow-500 transition-colors"
+            className={buttonVariants({ variant: "primary", size: "sm" })}
           >
-            Mulai Mabar Baru
+            Mulai mabar baru
           </button>
         </div>
       )}
-    </div>
+
+      <Overlay open={menuOpen} onClose={() => setMenuOpen(false)} variant="sheet" title="Menu">
+        <div className="space-y-2">
+          {!isSessionLocked && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                endSession();
+              }}
+              className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-muted"
+            >
+              <Lock size={20} className="mt-0.5 shrink-0 text-destructive" aria-hidden />
+              <span>
+                <span className="block font-semibold text-destructive">Akhiri mabar</span>
+                <span className="block text-sm text-muted-foreground">
+                  Kunci rekap, tagihan, dan keuangan sesi ini.
+                </span>
+              </span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onLogout();
+            }}
+            className="flex w-full items-center gap-3 rounded-lg p-3 text-left hover:bg-muted"
+          >
+            <LogOut size={20} className="shrink-0 text-muted-foreground" aria-hidden />
+            <span className="font-semibold">Keluar</span>
+          </button>
+        </div>
+      </Overlay>
+    </header>
   );
 }

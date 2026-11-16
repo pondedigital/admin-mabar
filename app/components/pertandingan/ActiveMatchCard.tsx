@@ -1,7 +1,11 @@
 import { Check, Minus, Plus, Trash2 } from "lucide-react";
 import { useMabar } from "../../context/MabarContext";
 import { splitTeams } from "../../lib/match";
+import { cn } from "../../lib/utils";
 import type { Match } from "../../types/mabar";
+import { buttonVariants } from "../ui/button";
+import { cardClass } from "../ui/Section";
+import { TeamNames } from "./TeamNames";
 
 interface ActiveMatchCardProps {
   match: Match;
@@ -10,79 +14,95 @@ interface ActiveMatchCardProps {
 export function ActiveMatchCard({ match }: ActiveMatchCardProps) {
   const { players, updateKok, updateScore, finishMatch, deleteMatch } = useMabar();
   const { teamA, teamB } = splitTeams(match);
+  const courtLabel = match.court ? `Lapangan ${match.court}` : "Tanpa lapangan";
+  const hasScore = match.scoreA > 0 || match.scoreB > 0;
 
-  const playerName = (id: number) => players.find((p) => p.id === id)?.name || "?";
+  const scoreRow = (team: "scoreA" | "scoreB", ids: number[], label: string) => (
+    <div className="flex items-center gap-3">
+      <TeamNames ids={ids} players={players} className="flex-1 text-base font-medium" />
+      <label className="sr-only" htmlFor={`${match.id}-${team}`}>
+        Skor {label}
+      </label>
+      <input
+        id={`${match.id}-${team}`}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        maxLength={2}
+        value={match[team] || ""}
+        onChange={(e) => updateScore(match.id, team, e.target.value.replace(/\D/g, ""))}
+        onFocus={(e) => e.target.select()}
+        placeholder="0"
+        className="h-12 w-16 shrink-0 rounded-lg border border-input bg-background text-center text-2xl font-bold tabular placeholder:text-muted-foreground/50 focus:border-foreground focus:outline-none focus:ring-2 focus:ring-foreground/15"
+      />
+    </div>
+  );
 
   return (
-    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-      <div className="flex justify-between items-center mb-3 border-b pb-2">
-        <span className="text-xs font-bold bg-emerald-100 px-2 py-1 rounded text-emerald-700">
-          {match.court ? `Lapangan ${match.court}` : "Aktif"}
+    <article className={cn(cardClass, "overflow-hidden")} aria-label={courtLabel}>
+      <div className="flex items-center gap-2 border-b border-border py-1.5 pl-3 pr-1">
+        <span className="flex items-center gap-2 whitespace-nowrap text-sm font-semibold">
+          <span className="relative flex size-2" aria-hidden>
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent2 opacity-60" />
+            <span className="relative inline-flex size-2 rounded-full bg-accent2" />
+          </span>
+          {courtLabel}
         </span>
-        <button onClick={() => deleteMatch(match.id)} className="text-red-400 hover:text-red-600">
-          <Trash2 size={16} />
+        <div className="ml-auto flex items-center" role="group" aria-label="Kok terpakai">
+          <button
+            type="button"
+            onClick={() => updateKok(match.id, -1)}
+            disabled={match.shuttlecocks <= 0}
+            aria-label="Kurangi kok"
+            className={buttonVariants({ variant: "ghost", size: "icon", className: "size-9" })}
+          >
+            <Minus size={16} aria-hidden />
+          </button>
+          <span className="min-w-12 whitespace-nowrap text-center text-sm tabular" aria-live="polite">
+            <span key={match.shuttlecocks} className="inline-block animate-pop font-bold">
+              {match.shuttlecocks}
+            </span>{" "}
+            kok
+          </span>
+          <button
+            type="button"
+            onClick={() => updateKok(match.id, 1)}
+            aria-label="Tambah kok"
+            className={buttonVariants({ variant: "ghost", size: "icon", className: "size-9" })}
+          >
+            <Plus size={16} aria-hidden />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => deleteMatch(match.id)}
+          aria-label={`Hapus pertandingan di ${courtLabel}`}
+          className={buttonVariants({ variant: "ghost", size: "icon", className: "size-9" })}
+        >
+          <Trash2 size={16} aria-hidden />
         </button>
       </div>
 
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex flex-col items-center flex-1">
-          {teamA.map((playerId) => (
-            <span key={playerId} className="font-semibold text-gray-800 text-sm">
-              {playerName(playerId)}
-            </span>
-          ))}
-          <input
-            type="number"
-            min="0"
-            value={match.scoreA || ""}
-            onChange={(e) => updateScore(match.id, "scoreA", e.target.value)}
-            placeholder="0"
-            className="mt-2 w-16 text-center text-xl font-black border-b-2 border-gray-200 focus:border-yellow-400 outline-none pb-1"
-          />
-        </div>
-        <div className="px-2 font-black text-gray-300 italic">VS</div>
-        <div className="flex flex-col items-center flex-1">
-          {teamB.map((playerId) => (
-            <span key={playerId} className="font-semibold text-gray-800 text-sm">
-              {playerName(playerId)}
-            </span>
-          ))}
-          <input
-            type="number"
-            min="0"
-            value={match.scoreB || ""}
-            onChange={(e) => updateScore(match.id, "scoreB", e.target.value)}
-            placeholder="0"
-            className="mt-2 w-16 text-center text-xl font-black border-b-2 border-gray-200 focus:border-yellow-400 outline-none pb-1"
-          />
-        </div>
+      <div className="space-y-2 p-3">
+        {scoreRow("scoreA", teamA, "tim A")}
+        {scoreRow("scoreB", teamB, "tim B")}
       </div>
 
-      <div className="flex items-center justify-between bg-yellow-50 p-3 rounded-lg border border-yellow-200 mb-3">
-        <span className="font-bold text-yellow-800 text-sm">Kok Terpakai:</span>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => updateKok(match.id, -1)}
-            className="bg-white p-1.5 rounded-full shadow-sm text-gray-600 hover:bg-gray-50 border border-gray-200"
-          >
-            <Minus size={18} />
-          </button>
-          <span className="font-bold text-lg w-6 text-center">{match.shuttlecocks}</span>
-          <button
-            onClick={() => updateKok(match.id, 1)}
-            className="bg-yellow-400 p-1.5 rounded-full shadow-sm text-black hover:bg-yellow-500"
-          >
-            <Plus size={18} />
-          </button>
-        </div>
+      <div className="px-3 pb-3">
+        <button
+          type="button"
+          onClick={() => finishMatch(match.id)}
+          disabled={!hasScore}
+          className={buttonVariants({ variant: "ink", className: "w-full" })}
+        >
+          <Check size={18} strokeWidth={2.5} aria-hidden /> Selesai & simpan skor
+        </button>
+        {!hasScore && (
+          <p className="mt-1.5 text-center text-xs text-muted-foreground">
+            Isi skor dulu. Skor 0–0 tidak bisa disimpan.
+          </p>
+        )}
       </div>
-
-      <button
-        onClick={() => finishMatch(match.id)}
-        className="w-full py-2 bg-black text-yellow-400 font-bold rounded-lg hover:bg-zinc-800 transition flex justify-center items-center gap-2"
-      >
-        <Check size={18} strokeWidth={3} /> Selesai & Simpan Score
-      </button>
-    </div>
+    </article>
   );
 }

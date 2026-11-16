@@ -18,6 +18,9 @@ import * as matchesService from "../lib/services/matches";
 import * as playersService from "../lib/services/players";
 import type { RosterPlayer } from "../lib/services/players";
 import { listMyPbs, type PbOption } from "../lib/services/pbs";
+import { CreatePbScreen } from "../components/auth/CreatePbScreen";
+import { FullScreenMessage } from "../components/layout/FullScreenMessage";
+import { buttonVariants } from "../components/ui/button";
 import {
   closeSession,
   getOrCreateOpenSession,
@@ -147,6 +150,11 @@ const CLOSED_MODAL: ModalState = {
 
 export function MabarProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  // Signed in but not admin of any PB yet -> first-run "Buat PB" step.
+  const [needsPb, setNeedsPb] = useState(false);
+  // Bumped to re-run STEP 1 after a PB is created.
+  const [profileVersion, setProfileVersion] = useState(0);
   const [pbOptions, setPbOptions] = useState<PbOption[]>([]);
   const [activePbId, setActivePbIdState] = usePersistentState<number | null>(
     "activePbId",
@@ -211,12 +219,14 @@ export function MabarProvider({ children }: { children: ReactNode }) {
 
       const [pbs, roster] = await Promise.all([listMyPbs(user.id), playersService.listRoster()]);
       if (cancelled) return;
+      setUserEmail(user.email ?? null);
       if (pbs.length === 0) {
-        throw new Error(
-          "Akun ini belum terhubung ke PB manapun. Hubungi admin lain untuk didaftarkan (tabel pb_admins)."
-        );
+        setNeedsPb(true);
+        setLoading(false);
+        return;
       }
 
+      setNeedsPb(false);
       setUserId(user.id);
       setPbOptions(pbs);
       setPlayerRoster(roster);
@@ -235,7 +245,7 @@ export function MabarProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [profileVersion]);
 
   // --- Memuat data satu sesi (dipakai saat load awal & saat mulai sesi baru) ---
   const loadSessionData = async (session: MabarSessionRow) => {
@@ -856,28 +866,48 @@ export function MabarProvider({ children }: { children: ReactNode }) {
 
   if (loadError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 text-center">
-        <div>
-          <p className="font-bold text-red-600 mb-1">Gagal memuat data dari Supabase</p>
-          <p className="text-sm text-gray-500 mb-4">{loadError}</p>
-          <button
-            type="button"
-            onClick={() => signOut()}
-            className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
-          >
-            Login ulang
-          </button>
-        </div>
-      </div>
+      <FullScreenMessage
+        tone="error"
+        title="Data mabar gagal dimuat"
+        description={loadError}
+        action={
+          <div className="flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className={buttonVariants({ variant: "ink" })}
+            >
+              Coba lagi
+            </button>
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              Masuk ulang
+            </button>
+          </div>
+        }
+      />
+    );
+  }
+
+  if (needsPb) {
+    return (
+      <CreatePbScreen
+        email={userEmail}
+        onSignOut={() => signOut()}
+        onCreated={(pbId) => {
+          setActivePbIdState(pbId);
+          setLoading(true);
+          setProfileVersion((v) => v + 1);
+        }}
+      />
     );
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-400 text-sm">Memuat data mabar...</p>
-      </div>
-    );
+    return <FullScreenMessage title="Memuat data mabar…" />;
   }
 
   const value: MabarContextValue = {

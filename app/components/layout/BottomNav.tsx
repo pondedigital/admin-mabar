@@ -1,4 +1,5 @@
-import { Activity, History, PieChart, Trophy, Users, Wallet, type LucideIcon } from "lucide-react";
+import { Activity, Trophy, Users, Wallet, type LucideIcon } from "lucide-react";
+import { cn } from "../../lib/utils";
 import type { TabId } from "../../types/mabar";
 
 interface NavItem {
@@ -9,11 +10,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "pemain", label: "Pemain", icon: Users },
-  { id: "pertandingan", label: "Match", icon: Activity },
-  { id: "rekap", label: "Rekap", icon: History },
-  { id: "klasemen", label: "Klasemen", icon: Trophy },
-  { id: "tagihan", label: "Resume", icon: Wallet },
-  { id: "keuangan", label: "Keuangan", icon: PieChart },
+  { id: "main", label: "Main", icon: Activity },
+  { id: "hasil", label: "Hasil", icon: Trophy },
+  { id: "kas", label: "Kas", icon: Wallet },
 ];
 
 interface BottomNavProps {
@@ -23,22 +22,39 @@ interface BottomNavProps {
 
 export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
   return (
-    <div className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 flex justify-between p-2 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] pb-safe z-20 print:hidden">
-      {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
-        const isActive = activeTab === id;
-        return (
-          <button
-            key={id}
-            onClick={() => onTabChange(id)}
-            className={`flex flex-1 flex-col items-center p-2 transition-colors ${
-              isActive ? "text-yellow-500" : "text-gray-400 hover:text-gray-600"
-            }`}
-          >
-            <Icon size={22} className={isActive ? "stroke-[2.5px]" : ""} />
-            <span className="text-[9px] font-bold mt-1">{label}</span>
-          </button>
-        );
-      })}
-    </div>
+    <nav
+      aria-label="Menu utama"
+      className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-md border-t border-border bg-card pb-safe print:hidden"
+    >
+      <ul className="flex">
+        {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+          const isActive = activeTab === id;
+          return (
+            <li key={id} className="flex-1">
+              <button
+                type="button"
+                onClick={() => onTabChange(id)}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex h-16 w-full flex-col items-center justify-center gap-1 text-xs font-semibold transition-colors",
+                  isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-7 w-14 items-center justify-center rounded-full transition-all duration-200",
+                    isActive && "surface-brand shadow-brand"
+                  )}
+                  style={{ transitionTimingFunction: "var(--ease-spring)" }}
+                >
+                  <Icon size={20} aria-hidden className={isActive ? "stroke-[2.25]" : undefined} />
+                </span>
+                {label}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }

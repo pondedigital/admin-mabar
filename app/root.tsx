@@ -10,22 +10,13 @@ import {
 import type { Route } from "./+types/root";
 import "./app.css";
 
-export const links: Route.LinksFunction = () => [
-  {
-    rel: "preload",
-    href: `${import.meta.env.BASE_URL}font/Montserrat/Montserrat-VariableFont_wght.ttf`,
-    as: "font",
-    type: "font/ttf",
-    crossOrigin: "anonymous",
-  },
-];
-
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="id">
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#121212" />
         <Meta />
         <Links />
       </head>

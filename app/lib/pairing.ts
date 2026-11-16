@@ -1,9 +1,10 @@
 import type { PlayerLevel } from "../types/mabar";
 
 export const LEVELS: Record<PlayerLevel, { label: string; short: string; score: number; color: string }> = {
-  Pemula: { label: "Pemula (C)", short: "C", score: 1, color: "bg-emerald-100 text-emerald-700" },
-  Menengah: { label: "Menengah (B)", short: "B", score: 2, color: "bg-blue-100 text-blue-700" },
-  Mahir: { label: "Mahir (A)", short: "A", score: 3, color: "bg-purple-100 text-purple-700" },
+  // Skill is ordinal, so the badge darkens with level instead of using unrelated hues.
+  Pemula: { label: "Pemula (C)", short: "C", score: 1, color: "bg-muted text-foreground" },
+  Menengah: { label: "Menengah (B)", short: "B", score: 2, color: "bg-brand-soft text-foreground" },
+  Mahir: { label: "Mahir (A)", short: "A", score: 3, color: "bg-foreground text-white" },
 };
 
 export interface PairingCandidate {
