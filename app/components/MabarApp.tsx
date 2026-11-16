@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { MabarProvider } from "../context/MabarContext";
 import { usePersistentState } from "../hooks/usePersistentState";
+import { isPlatformAdmin } from "../lib/admin";
 import { onAuthStateChange, signOut } from "../lib/auth";
 import { supabase } from "../lib/supabase/client";
 import type { TabId } from "../types/mabar";
+import { AdminPanel } from "./admin/AdminPanel";
 import { LoginPage } from "./auth/LoginPage";
 import { FullScreenMessage } from "./layout/FullScreenMessage";
 import { AppHeader } from "./layout/AppHeader";
@@ -31,24 +34,92 @@ function normalizeTab(tab: string): TabId {
   return LEGACY_TAB[tab] ?? "pemain";
 }
 
+/** Login-intent handoff between LoginPage and the routing above (see LoginPage). */
+export const LOGIN_MODE_KEY = "ponde_login_mode";
+export const ADMIN_REJECTED_KEY = "ponde_admin_rejected";
+
+function readLoginMode(): string | null {
+  try {
+    return sessionStorage.getItem(LOGIN_MODE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function clearLoginMode() {
+  try {
+    sessionStorage.removeItem(LOGIN_MODE_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+/** undefined = not yet checked, null = signed out. */
+type AuthState = Session | null | undefined;
+type Role = "loading" | "admin" | "user";
+
 export function MabarApp() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [session, setSession] = useState<AuthState>(undefined);
+  const [role, setRole] = useState<Role>("loading");
   const [storedTab, setActiveTab] = usePersistentState<string>("activeTab", "pemain");
   const activeTab = normalizeTab(storedTab);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setIsAuthenticated(data.session !== null);
-    });
-    return onAuthStateChange((session) => setIsAuthenticated(session !== null));
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    return onAuthStateChange((next) => setSession(next));
   }, []);
 
-  if (isAuthenticated === null) {
+  // Platform admins land on the admin panel; everyone else on the app.
+  // Someone who chose "Admin" at login but isn't one is signed back out, so the
+  // admin entrance can't be used to reach anything without the admin role.
+  useEffect(() => {
+    if (!session) {
+      setRole("loading");
+      return;
+    }
+    let cancelled = false;
+    setRole("loading");
+    isPlatformAdmin()
+      .then((admin) => {
+        if (cancelled) return;
+        if (admin) {
+          clearLoginMode();
+          setRole("admin");
+          return;
+        }
+        if (readLoginMode() === "admin") {
+          try {
+            sessionStorage.setItem(ADMIN_REJECTED_KEY, "1");
+          } catch {
+            /* ignore storage errors */
+          }
+          clearLoginMode();
+          signOut(); // → session null → LoginPage shows the rejection; stay on "loading" meanwhile.
+          return;
+        }
+        clearLoginMode();
+        setRole("user");
+      })
+      .catch(() => !cancelled && setRole("user"));
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  if (session === undefined) {
     return <FullScreenMessage title="Memuat…" />;
   }
 
-  if (!isAuthenticated) {
-    return <LoginPage onLoginSuccess={() => setIsAuthenticated(true)} />;
+  if (session === null) {
+    return <LoginPage onLoginSuccess={() => undefined} />;
+  }
+
+  if (role === "loading") {
+    return <FullScreenMessage title="Memuat…" />;
+  }
+
+  if (role === "admin") {
+    return <AdminPanel email={session.user.email ?? null} />;
   }
 
   return (

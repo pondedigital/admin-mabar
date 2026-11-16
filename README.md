@@ -16,6 +16,13 @@ The app has four tabs, plus a session settings sheet and a menu in the header.
 - A new account with no PB creates its own PB on first sign-in and becomes its admin.
 - Setup and operations: [docs/auth-gmail.md](docs/auth-gmail.md).
 
+### 🛡️ Panel Admin (platform admin)
+
+- A platform admin logs in via the **Admin** toggle on the login screen.
+- The only capability is **add a user + set their PB name** (PB created if new, reused if it exists).
+- Access is gated server-side (`admin_create_user` checks `platform_admins`), the admin list is not self-serve, and the panel only renders for real admins.
+- Setup and operations: [docs/admin-panel.md](docs/admin-panel.md).
+
 ### Header
 
 - PB name, date and GOR. Tap it (or the settings icon) to open **Pengaturan sesi**: PB switch, GOR name, session date, number of courts, payment mode, shuttlecock price, base fee / all-in fee. Changes save automatically.

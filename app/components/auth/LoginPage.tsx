@@ -1,5 +1,5 @@
-import { useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { ArrowLeft, Eye, EyeOff, ShieldCheck, Users } from "lucide-react";
 import {
   CLAIM_MESSAGES,
   claimLegacyAccount,
@@ -7,19 +7,23 @@ import {
   signInErrorMessage,
 } from "../../lib/auth";
 import { gmailError, normalizeEmail } from "../../lib/email";
+import { ADMIN_REJECTED_KEY, LOGIN_MODE_KEY } from "../MabarApp";
 import { buttonVariants, inputClass } from "../ui/button";
 import { Field } from "../ui/Field";
+import { Segmented } from "../ui/Segmented";
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
 }
 
 type View = "login" | "claim";
+export type LoginMode = "pengurus" | "admin";
 
 export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [view, setView] = useState<View>("login");
   const [email, setEmail] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [mode, setMode] = useState<LoginMode>("pengurus");
 
   return (
     <div className="flex min-h-dvh flex-col bg-foreground">
@@ -30,6 +34,8 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
             email={email}
             setEmail={setEmail}
             notice={notice}
+            mode={mode}
+            setMode={setMode}
             onSuccess={onLoginSuccess}
             onClaim={() => {
               setNotice(null);
@@ -145,12 +151,16 @@ function LoginForm({
   email,
   setEmail,
   notice,
+  mode,
+  setMode,
   onSuccess,
   onClaim,
 }: {
   email: string;
   setEmail: (value: string) => void;
   notice: string | null;
+  mode: LoginMode;
+  setMode: (mode: LoginMode) => void;
   onSuccess: () => void;
   onClaim: () => void;
 }) {
@@ -158,6 +168,20 @@ function LoginForm({
   const [emailError, setEmailError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isAdmin = mode === "admin";
+
+  // Returning here after the router rejected a non-admin admin login.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(ADMIN_REJECTED_KEY)) {
+        sessionStorage.removeItem(ADMIN_REJECTED_KEY);
+        setMode("admin");
+        setFormError("Akun ini tidak punya akses admin.");
+      }
+    } catch {
+      /* ignore storage errors */
+    }
+  }, [setMode]);
 
   // Someone typing an old username (no "@") gets pointed to the claim flow.
   const looksLikeUsername = email.trim().length > 0 && !email.includes("@");
@@ -168,6 +192,14 @@ function LoginForm({
     setEmailError(fieldError);
     setFormError(null);
     if (fieldError) return;
+
+    try {
+      // Hand the chosen mode to the router so it can gate a non-admin who
+      // picked "Admin" (see MabarApp).
+      sessionStorage.setItem(LOGIN_MODE_KEY, mode);
+    } catch {
+      /* ignore storage errors */
+    }
 
     setIsSubmitting(true);
     try {
@@ -182,7 +214,24 @@ function LoginForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-5">
-      <h1 className="text-xl font-bold">Masuk</h1>
+      <Segmented
+        label="Masuk sebagai"
+        value={mode}
+        onChange={(next) => {
+          setMode(next);
+          setFormError(null);
+        }}
+        options={[
+          { value: "pengurus", label: "Pengurus PB", icon: Users },
+          { value: "admin", label: "Admin", icon: ShieldCheck },
+        ]}
+      />
+      <h1 className="text-xl font-bold">{isAdmin ? "Masuk sebagai Admin" : "Masuk"}</h1>
+      {isAdmin && (
+        <p className="-mt-3 text-sm text-muted-foreground">
+          Khusus admin platform PONDE untuk menambah user.
+        </p>
+      )}
       {notice && <FormAlert tone="success">{notice}</FormAlert>}
       {formError && <FormAlert tone="error">{formError}</FormAlert>}
 
@@ -190,7 +239,7 @@ function LoginForm({
         label="Gmail"
         error={emailError ?? undefined}
         hint={
-          looksLikeUsername ? (
+          !isAdmin && looksLikeUsername ? (
             <>
               Masih pakai username lama?{" "}
               <button type="button" onClick={onClaim} className="font-semibold text-foreground underline">
@@ -239,20 +288,22 @@ function LoginForm({
         disabled={isSubmitting || !email || !password}
         className={buttonVariants({ variant: "primary", size: "lg", className: "w-full" })}
       >
-        {isSubmitting ? "Memeriksa…" : "Masuk"}
+        {isSubmitting ? "Memeriksa…" : isAdmin ? "Masuk sebagai Admin" : "Masuk"}
       </button>
 
-      <div className="space-y-3 border-t border-border pt-5 text-sm">
-        <p>
-          <span className="text-muted-foreground">Punya akun lama dengan username? </span>
-          <button type="button" onClick={onClaim} className="font-semibold underline">
-            Pindahkan ke Gmail
-          </button>
-        </p>
-        <p className="text-muted-foreground">
-          Belum punya akun? Akun dibuat oleh admin PONDE. Lupa password juga hubungi admin.
-        </p>
-      </div>
+      {!isAdmin && (
+        <div className="space-y-3 border-t border-border pt-5 text-sm">
+          <p>
+            <span className="text-muted-foreground">Punya akun lama dengan username? </span>
+            <button type="button" onClick={onClaim} className="font-semibold underline">
+              Pindahkan ke Gmail
+            </button>
+          </p>
+          <p className="text-muted-foreground">
+            Belum punya akun? Akun dibuat oleh admin PONDE. Lupa password juga hubungi admin.
+          </p>
+        </div>
+      )}
     </form>
   );
 }
